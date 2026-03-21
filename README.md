@@ -1,36 +1,193 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Early Learning Library - Admin Portal
+
+A modern admin portal for managing Early Learning Library teachers, students, and class codes. Built with Next.js, Firebase, and Tailwind CSS.
+
+## Features
+
+- **Authentication**: Email/password, Google, and Apple sign-in
+- **Dashboard**: Overview of teachers, students, and reading statistics
+- **Class Codes Management**: Add, validate, and manage class codes
+- **Teachers Management**: View all teachers and their students
+- **Students Management**: View, move between classes, and delete students
+- **School Settings**: Manage school/center information
+
+## Tech Stack
+
+- **Framework**: Next.js 15 (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS v4
+- **UI Components**: shadcn/ui
+- **Database**: Firebase Realtime Database
+- **Authentication**: Firebase Auth
+- **Deployment**: Vercel (recommended)
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node.js 18+ installed
+- A Firebase project with Realtime Database enabled
+- Firebase Authentication enabled (Email/Password, Google, Apple)
+
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone <your-repo-url>
+   cd EarlyLearningLibraryAdminPortal
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Configure Firebase**
+   
+   Copy the environment example file:
+   ```bash
+   cp .env.local.example .env.local
+   ```
+   
+   Fill in your Firebase configuration in `.env.local`:
+   ```env
+   NEXT_PUBLIC_FIREBASE_API_KEY=your-api-key
+   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+   NEXT_PUBLIC_FIREBASE_DATABASE_URL=https://your-project-default-rtdb.firebaseio.com
+   NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-project-id
+   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
+   NEXT_PUBLIC_FIREBASE_APP_ID=your-app-id
+   ```
+
+4. **Run the development server**
+   ```bash
+   npm run dev
+   ```
+
+5. **Open the app**
+   
+   Navigate to [http://localhost:3000](http://localhost:3000)
+
+## Firebase Database Structure
+
+The app expects the following structure in your Firebase Realtime Database:
+
+```json
+{
+  "users": {
+    "<user_uid>": {
+      "is_teacher": true/false,
+      "teacher_code": "XXXXX",
+      "teacher_details": { ... },
+      "children": { ... },
+      "sign_in_details": { ... }
+    }
+  },
+  "admins": {
+    "<admin_uid>": {
+      "email": "admin@school.com",
+      "name": "Admin Name",
+      "role": "school_admin",
+      "school_details": { ... },
+      "is_active": true,
+      "is_setup_complete": true
+    }
+  },
+  "class_codes": {
+    "<code>": {
+      "teacher_uid": "...",
+      "class_name": "...",
+      "expiration_date": "...",
+      "student_limit": 30
+    }
+  }
+}
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Firebase Security Rules
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Add these rules to your Firebase Realtime Database:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```json
+{
+  "rules": {
+    "admins": {
+      "$adminId": {
+        ".read": "auth != null && (auth.uid == $adminId || root.child('admins').child(auth.uid).child('role').val() == 'super_admin')",
+        ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+      }
+    },
+    "users": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+      "$userId": {
+        ".read": "auth != null && (auth.uid == $userId || root.child('admins').child(auth.uid).exists())",
+        ".write": "auth != null && (auth.uid == $userId || root.child('admins').child(auth.uid).exists())"
+      }
+    },
+    "class_codes": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+    }
+  }
+}
+```
 
-## Learn More
+## Deployment
 
-To learn more about Next.js, take a look at the following resources:
+### Deploy to Vercel (Recommended)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Push your code to GitHub
+2. Go to [vercel.com](https://vercel.com) and import your repository
+3. Add your environment variables in the Vercel dashboard
+4. Deploy!
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Deploy to Firebase Hosting
 
-## Deploy on Vercel
+1. Install Firebase CLI: `npm install -g firebase-tools`
+2. Login: `firebase login`
+3. Initialize: `firebase init hosting`
+4. Build: `npm run build`
+5. Deploy: `firebase deploy --only hosting`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Project Structure
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+src/
+├── app/
+│   ├── (auth)/           # Auth pages (login, signup, forgot-password)
+│   ├── admin/            # Admin pages (dashboard, teachers, students, etc.)
+│   ├── setup/            # Admin setup page
+│   ├── layout.tsx        # Root layout
+│   └── page.tsx          # Landing page (redirects)
+├── components/
+│   ├── admin/            # Admin-specific components
+│   └── ui/               # shadcn/ui components
+├── contexts/
+│   └── AuthContext.tsx   # Authentication context
+├── hooks/
+│   └── use-mobile.ts     # Mobile detection hook
+└── lib/
+    ├── firebase.ts       # Firebase configuration
+    ├── firebase-service.ts # Firebase data operations
+    ├── types.ts          # TypeScript interfaces
+    └── utils.ts          # Utility functions
+```
+
+## Available Scripts
+
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run start` - Start production server
+- `npm run lint` - Run ESLint
+
+## Admin Roles
+
+- **super_admin**: Can manage all admins and has full access
+- **school_admin**: Can manage their school's teachers and students
+- **viewer**: Read-only access
+
+## License
+
+Private - All rights reserved.
