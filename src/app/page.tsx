@@ -11,10 +11,10 @@ export default function Home() {
   useEffect(() => {
     if (!loading) {
       if (user && admin) {
-        if (admin.is_setup_complete) {
-          router.push("/admin/dashboard");
-        } else {
+        if (!admin.sign_in_details?.is_setup_complete) {
           router.push("/setup");
+        } else {
+          router.push("/admin/dashboard");
         }
       } else {
         router.push("/login");

@@ -19,7 +19,7 @@ export default function AdminLayout({
     if (!loading) {
       if (!user || !admin) {
         router.push("/login");
-      } else if (!admin.is_setup_complete) {
+      } else if (!admin.sign_in_details?.is_setup_complete) {
         router.push("/setup");
       }
     }
@@ -37,7 +37,11 @@ export default function AdminLayout({
     );
   }
 
-  if (!user || !admin || !admin.is_setup_complete) {
+  if (
+    !user ||
+    !admin ||
+    !admin.sign_in_details?.is_setup_complete
+  ) {
     return null;
   }
 

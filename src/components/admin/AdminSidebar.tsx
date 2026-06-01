@@ -23,6 +23,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { formatDisplayName } from "@/lib/utils";
 
 const mainNavItems = [
   {
@@ -47,7 +48,7 @@ const mainNavItems = [
     ),
   },
   {
-    title: "Class Codes",
+    title: "Teacher Codes",
     href: "/admin/class-codes",
     icon: (
       <svg
@@ -109,6 +110,32 @@ const mainNavItems = [
   },
 ];
 
+const superAdminNavItems = [
+  {
+    title: "Schools",
+    href: "/admin/schools",
+    icon: (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="w-4 h-4"
+      >
+        <path d="M3 21h18" />
+        <path d="M5 21V7l8-4v18" />
+        <path d="M19 21V11l-6-4" />
+        <path d="M9 9h1" />
+        <path d="M9 13h1" />
+        <path d="M9 17h1" />
+      </svg>
+    ),
+  },
+];
+
 const settingsNavItems = [
   {
     title: "Settings",
@@ -133,7 +160,13 @@ const settingsNavItems = [
 
 export function AdminSidebar() {
   const pathname = usePathname();
-  const { admin, logout } = useAuth();
+  const { admin } = useAuth();
+  const adminName = formatDisplayName(admin?.sign_in_details?.name) || "A";
+  const adminEmail = admin?.sign_in_details?.email || admin?.sign_in_details?.sign_in_email || "";
+  const managementNavItems =
+    admin?.role === "super_admin"
+      ? [mainNavItems[0], ...superAdminNavItems, ...mainNavItems.slice(1)]
+      : mainNavItems.filter((item) => item.href !== "/admin/class-codes");
 
   const getInitials = (name: string) => {
     return name
@@ -155,7 +188,9 @@ export function AdminSidebar() {
           />
           <div className="flex flex-col">
             <span className="font-semibold text-sm">Smart Kidz Club</span>
-            <span className="text-xs text-muted-foreground">Admin Portal</span>
+            <span className="text-xs text-muted-foreground">
+              {admin?.role === "super_admin" ? "Super Admin Portal" : "School Admin Portal"}
+            </span>
           </div>
         </div>
       </SidebarHeader>
@@ -165,7 +200,7 @@ export function AdminSidebar() {
           <SidebarGroupLabel>Management</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainNavItems.map((item) => (
+              {managementNavItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild isActive={pathname === item.href}>
                     <Link href={item.href}>
@@ -204,36 +239,29 @@ export function AdminSidebar() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <SidebarMenuButton className="w-full">
-                  <Avatar className="h-6 w-6">
-                    <AvatarFallback className="text-xs bg-blue-600 text-white">
-                      {getInitials(admin?.name || "A")}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex flex-col items-start text-left">
-                    <span className="text-sm font-medium truncate max-w-[140px]">
-                      {admin?.name}
-                    </span>
-                    <span className="text-xs text-muted-foreground truncate max-w-[140px]">
-                      {admin?.email}
-                    </span>
-                  </div>
+                    <Avatar className="h-6 w-6">
+                      <AvatarFallback className="text-xs bg-blue-600 text-white">
+                      {getInitials(adminName)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex flex-col items-start text-left">
+                      <span className="text-sm font-medium truncate max-w-[140px]">
+                      {adminName}
+                      </span>
+                      <span className="text-xs text-muted-foreground truncate max-w-[140px]">
+                      {adminEmail}
+                      </span>
+                    </div>
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="start" className="w-56">
                 <div className="px-2 py-1.5">
-                  <p className="text-sm font-medium">{admin?.name}</p>
-                  <p className="text-xs text-muted-foreground">{admin?.email}</p>
+                  <p className="text-sm font-medium">{adminName}</p>
+                  <p className="text-xs text-muted-foreground">{adminEmail}</p>
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
                   <Link href="/admin/settings">Settings</Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => logout()}
-                  className="text-destructive focus:text-destructive"
-                >
-                  Sign out
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

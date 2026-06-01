@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -13,21 +14,100 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { TruncatedText } from "@/components/admin/TruncatedText";
+import { Info, Plus, Users } from "lucide-react";
 import { toast } from "sonner";
-import { fetchTeachers } from "@/lib/firebase-service";
-import { TeacherListItem } from "@/lib/types";
+import {
+  fetchAdminTeachers,
+  fetchClassCodes,
+  fetchTeachers,
+  addTeacherToAdmin,
+  assignTeacherCodeToSchool,
+  validateTeacherCode,
+  transferTeacherAssignment,
+} from "@/lib/firebase-service";
+import { AdminTeacher, ClassCode, TeacherListItem } from "@/lib/types";
+import { useAuth } from "@/contexts/AuthContext";
+
+const getLocalDateValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+};
+
+const isAlphanumeric = (value: string) => /^[a-z0-9]+$/i.test(value);
 
 export default function TeachersPage() {
   const router = useRouter();
+  const { admin } = useAuth();
   const [teachers, setTeachers] = useState<TeacherListItem[]>([]);
   const [filteredTeachers, setFilteredTeachers] = useState<TeacherListItem[]>([]);
+  const [classCodes, setClassCodes] = useState<ClassCode[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [transferTeacher, setTransferTeacher] = useState<TeacherListItem | null>(null);
+  const [targetTeacherUid, setTargetTeacherUid] = useState("");
+  const [isTransferring, setIsTransferring] = useState(false);
+  const [selectedTeacher, setSelectedTeacher] = useState<TeacherListItem | null>(null);
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isSubmittingCode, setIsSubmittingCode] = useState(false);
+  const [isValidatingCode, setIsValidatingCode] = useState(false);
+  const [newCode, setNewCode] = useState("");
+  const [teacherName, setTeacherName] = useState("");
+  const [teacherEmail, setTeacherEmail] = useState("");
+  const [expirationDate, setExpirationDate] = useState("");
+  const [studentLimit, setStudentLimit] = useState("");
+  const [codeValidation, setCodeValidation] = useState<{
+    checked: boolean;
+    valid: boolean;
+    message?: string;
+    teacher?: TeacherListItem;
+    classCode?: ClassCode;
+  }>({ checked: false, valid: false });
+
+  const loadTeachers = useCallback(async () => {
+    if (!admin) return;
+
+    try {
+      setLoading(true);
+        const [data, codesData] = await Promise.all([
+          admin.role === "super_admin"
+            ? fetchTeachers()
+            : fetchAdminTeachers(admin.uid),
+          fetchClassCodes(),
+        ]);
+      setTeachers(data);
+      setFilteredTeachers(data);
+      setClassCodes(codesData);
+    } catch (error) {
+      console.error("Failed to load teachers:", error);
+      toast.error("Failed to load teachers");
+    } finally {
+      setLoading(false);
+    }
+  }, [admin]);
 
   useEffect(() => {
     loadTeachers();
-  }, []);
+  }, [loadTeachers]);
 
   useEffect(() => {
     if (searchQuery.trim() === "") {
@@ -46,30 +126,255 @@ export default function TeachersPage() {
     }
   }, [searchQuery, teachers]);
 
-  async function loadTeachers() {
-    try {
-      const data = await fetchTeachers();
-      setTeachers(data);
-      setFilteredTeachers(data);
-    } catch (error) {
-      console.error("Failed to load teachers:", error);
-      toast.error("Failed to load teachers");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const handleViewStudents = (teacherUid: string) => {
+    router.push(`/admin/students?teacher=${teacherUid}`);
+  };
 
-  const handleViewStudents = (teacherCode: string) => {
-    router.push(`/admin/students?teacher=${teacherCode}`);
+  const getAssignedCodeForTeacher = (teacherUid: string) => {
+    return classCodes.find(
+      (code) => code.teacher_uid === teacherUid && code.school_admin_uid
+    );
+  };
+
+  const getTeacherCodeRecord = (teacher: TeacherListItem | null) => {
+    if (!teacher) return undefined;
+
+    return classCodes.find(
+      (code) =>
+        code.teacher_uid === teacher.uid ||
+        code.code === teacher.teacherCode
+    );
+  };
+
+  const getTransferTargets = () => {
+    if (!transferTeacher) {
+      return [];
+    }
+
+    return teachers.filter((teacher) => {
+      const hasActiveAssignedCode = classCodes.some(
+        (code) => code.teacher_uid === teacher.uid && code.school_admin_uid
+      );
+
+      return (
+        teacher.uid !== transferTeacher.uid &&
+        !hasActiveAssignedCode &&
+        teacher.studentCount === 0
+      );
+    });
+  };
+
+  const closeTransferDialog = () => {
+    setTransferTeacher(null);
+    setTargetTeacherUid("");
+  };
+
+  const handleTransferAssignment = async () => {
+    if (!transferTeacher || !targetTeacherUid) {
+      toast.error("Please select a teacher");
+      return;
+    }
+
+    const assignedCode = getAssignedCodeForTeacher(transferTeacher.uid);
+    if (!assignedCode) {
+      toast.error("This teacher does not have an assigned teacher code");
+      return;
+    }
+
+    setIsTransferring(true);
+
+    try {
+      await transferTeacherAssignment(
+        assignedCode.code,
+        transferTeacher.uid,
+        targetTeacherUid
+      );
+      toast.success("Teacher assignment transferred successfully");
+      closeTransferDialog();
+
+      const [teachersData, codesData] = await Promise.all([
+        fetchTeachers(),
+        fetchClassCodes(),
+      ]);
+      setTeachers(teachersData);
+      setFilteredTeachers(teachersData);
+      setClassCodes(codesData);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to transfer teacher assignment"
+      );
+    } finally {
+      setIsTransferring(false);
+    }
+  };
+
+  const resetAddTeacherCodeForm = () => {
+    setNewCode("");
+    setTeacherName("");
+    setTeacherEmail("");
+    setExpirationDate("");
+    setStudentLimit("");
+    setCodeValidation({ checked: false, valid: false });
+  };
+
+  const handleValidateCode = async () => {
+    const normalizedCode = newCode.trim().toUpperCase();
+
+    if (!normalizedCode) {
+      toast.error("Please enter a teacher code");
+      return;
+    }
+
+    setIsValidatingCode(true);
+
+    try {
+      const [result, allTeacherCodes] = await Promise.all([
+        validateTeacherCode(normalizedCode),
+        fetchClassCodes(),
+      ]);
+      const teacherCode = allTeacherCodes.find((code) => code.code === normalizedCode);
+
+      if (!teacherCode) {
+        setCodeValidation({ checked: true, valid: false, message: "Teacher code not found" });
+        setExpirationDate("");
+        setStudentLimit("");
+        toast.error("Teacher code not found in teacher codes");
+        return;
+      }
+
+      if (!teacherCode.teacher_uid) {
+        setCodeValidation({ checked: true, valid: false, message: "This teacher code has not been used by a teacher yet" });
+        setExpirationDate(teacherCode.expiration_date || "");
+        setStudentLimit(teacherCode.student_limit?.toString() || "");
+        toast.error("This teacher code has not been used by a teacher yet");
+        return;
+      }
+
+      if (
+        teacherCode.school_admin_uid &&
+        teacherCode.school_admin_uid !== admin?.uid
+      ) {
+        setCodeValidation({ checked: true, valid: false, message: "This teacher code is already assigned to another school" });
+        setExpirationDate(teacherCode.expiration_date || "");
+        setStudentLimit(teacherCode.student_limit?.toString() || "");
+        toast.error("This teacher code is already assigned to another school");
+        return;
+      }
+
+      if (!result.valid || !result.teacher?.uid) {
+        setCodeValidation({ checked: true, valid: false, message: "Teacher account not found" });
+        setExpirationDate(teacherCode.expiration_date || "");
+        setStudentLimit(teacherCode.student_limit?.toString() || "");
+        toast.error("Teacher account not found for this code");
+        return;
+      }
+
+      setCodeValidation({ checked: true, ...result, classCode: teacherCode });
+      setExpirationDate(teacherCode.expiration_date || "");
+      setStudentLimit(teacherCode.student_limit?.toString() || "");
+
+      setTeacherName(result.teacher.name);
+      setTeacherEmail(result.teacher.email);
+      toast.success("Valid teacher code found!");
+    } catch {
+      toast.error("Failed to validate code");
+    } finally {
+      setIsValidatingCode(false);
+    }
+  };
+
+  const handleAddTeacherCode = async () => {
+    if (!admin || admin.role === "super_admin") return;
+
+    const normalizedCode = newCode.trim().toUpperCase();
+
+    if (!normalizedCode) {
+      toast.error("Please enter a teacher code");
+      return;
+    }
+
+    if (!isAlphanumeric(normalizedCode)) {
+      toast.error("Teacher code can contain only letters and numbers");
+      return;
+    }
+
+    if (teachers.some((teacher) => teacher.teacherCode === normalizedCode)) {
+      toast.error("This teacher code is already assigned to your school");
+      return;
+    }
+
+    if (!codeValidation.classCode) {
+      toast.error("Please validate the teacher code first");
+      return;
+    }
+
+    if (expirationDate && expirationDate <= getLocalDateValue(new Date())) {
+      toast.error("Expiration date must be greater than today's date");
+      return;
+    }
+
+    setIsSubmittingCode(true);
+
+    try {
+      const teacherUid = codeValidation.classCode.teacher_uid;
+      if (!teacherUid) {
+        toast.error("Teacher account not found for this code");
+        return;
+      }
+
+      await assignTeacherCodeToSchool(normalizedCode, admin.uid);
+
+      const adminTeacher: AdminTeacher = {
+        uid: teacherUid,
+        school_admin_uid: admin.uid,
+        teacher_code: normalizedCode,
+        assigned_at: new Date().toISOString(),
+      };
+
+      await addTeacherToAdmin(admin.uid, adminTeacher);
+
+      toast.success("Teacher code added successfully!");
+      resetAddTeacherCodeForm();
+      setIsAddDialogOpen(false);
+      await loadTeachers();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to add teacher code"
+      );
+    } finally {
+      setIsSubmittingCode(false);
+    }
+  };
+
+  const formatLastSignIn = (lastSignIn: string) => {
+    if (!lastSignIn || lastSignIn === "Never") {
+      return "Never";
+    }
+
+    const date = new Date(lastSignIn);
+    return Number.isNaN(date.getTime()) ? "Never" : date.toLocaleDateString();
   };
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Teachers</h1>
-        <p className="text-muted-foreground">
-          View and manage teachers in the system
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Teachers</h1>
+          <p className="text-muted-foreground">
+            View and manage teachers {admin?.role === "super_admin" ? "in the system" : "connected to your school"}
+          </p>
+        </div>
+        {admin?.role !== "super_admin" && (
+          <Button
+            onClick={() => setIsAddDialogOpen(true)}
+            className="bg-green-600 text-white shadow-sm hover:bg-green-700"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Add Teacher Code
+          </Button>
+        )}
       </div>
 
       <Card>
@@ -103,45 +408,85 @@ export default function TeachersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Teacher Code</TableHead>
-                  <TableHead>School</TableHead>
-                  <TableHead>Students</TableHead>
-                  <TableHead>Last Sign In</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="text-center">Email</TableHead>
+                  <TableHead className="text-center">Name</TableHead>
+                  <TableHead className="text-center">Teacher Code</TableHead>
+                  <TableHead className="text-center">Students</TableHead>
+                  <TableHead className="text-center">School</TableHead>
+                  <TableHead className="text-center">Last Sign In</TableHead>
+                  <TableHead className="w-[80px] text-center">Info</TableHead>
+                  {admin?.role === "super_admin" && (
+                    <TableHead className="text-center">Actions</TableHead>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredTeachers.map((teacher) => (
-                  <TableRow key={teacher.uid}>
-                    <TableCell className="font-medium">{teacher.name}</TableCell>
-                    <TableCell>{teacher.email}</TableCell>
-                    <TableCell>
-                      <Badge variant="secondary" className="font-mono">
-                        {teacher.teacherCode}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{teacher.school}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{teacher.studentCount} students</Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
-                      {teacher.lastSignIn
-                        ? new Date(teacher.lastSignIn).toLocaleDateString()
-                        : "Never"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleViewStudents(teacher.teacherCode)}
-                      >
-                        View Students
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {filteredTeachers.map((teacher) => {
+                  const assignedCode = getAssignedCodeForTeacher(teacher.uid);
+
+                  return (
+                    <TableRow key={teacher.uid}>
+                      <TableCell>
+                        <TruncatedText value={teacher.email} maxChars={28} />
+                      </TableCell>
+                      <TableCell className="text-center font-medium">{teacher.name}</TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant="secondary" className="font-mono">
+                          {teacher.teacherCode}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+                          onClick={() => handleViewStudents(teacher.uid)}
+                        >
+                          <Users className="h-3.5 w-3.5" />
+                          {teacher.studentCount} students
+                        </Button>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <TruncatedText
+                          value={teacher.school}
+                          maxChars={24}
+                          className="mx-auto"
+                        />
+                      </TableCell>
+                      <TableCell className="text-center text-muted-foreground text-sm">
+                        {formatLastSignIn(teacher.lastSignIn)}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+                          aria-label={`View details for ${teacher.name}`}
+                          onClick={() => setSelectedTeacher(teacher)}
+                        >
+                          <Info className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                      {admin?.role === "super_admin" && (
+                        <TableCell className="text-center">
+                          {assignedCode ? (
+                            <div className="flex justify-center gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setTransferTeacher(teacher)}
+                              >
+                                Transfer Assignment
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
@@ -190,6 +535,255 @@ export default function TeachersPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog
+        open={!!selectedTeacher}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedTeacher(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[560px]">
+          {selectedTeacher && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{selectedTeacher.name}</DialogTitle>
+                <DialogDescription>Teacher account and assignment details</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-5">
+                <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <div className="text-xs font-medium uppercase text-muted-foreground">
+                      Email
+                    </div>
+                    <div className="break-words text-sm font-medium">
+                      {selectedTeacher.email}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs font-medium uppercase text-muted-foreground">
+                      Teacher Code
+                    </div>
+                    <Badge variant="secondary" className="w-fit font-mono">
+                      {selectedTeacher.teacherCode || "-"}
+                    </Badge>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs font-medium uppercase text-muted-foreground">
+                      School
+                    </div>
+                    <div className="text-sm font-medium">{selectedTeacher.school}</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs font-medium uppercase text-muted-foreground">
+                      Last Sign In
+                    </div>
+                    <div className="text-sm font-medium">
+                      {formatLastSignIn(selectedTeacher.lastSignIn)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-md border p-3 text-center">
+                    <div className="text-2xl font-bold tabular-nums">
+                      {selectedTeacher.studentCount}
+                      {getTeacherCodeRecord(selectedTeacher)?.student_limit
+                        ? ` / ${getTeacherCodeRecord(selectedTeacher)?.student_limit}`
+                        : ""}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Students</div>
+                  </div>
+                  <div className="rounded-md border p-3 text-center">
+                    <div className="text-2xl font-bold tabular-nums">
+                      {selectedTeacher.classAssignmentsCount}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Class Assignments</div>
+                  </div>
+                  <div className="rounded-md border p-3 text-center">
+                    <div className="text-2xl font-bold tabular-nums">
+                      {selectedTeacher.individualAssignmentsCount}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Individual Assignments</div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isAddDialogOpen}
+        onOpenChange={(open) => {
+          setIsAddDialogOpen(open);
+          if (!open) {
+            resetAddTeacherCodeForm();
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Add Teacher Code</DialogTitle>
+            <DialogDescription>
+              Enter a teacher code to add the teacher to your school.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="teacherCode">Teacher Code *</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="teacherCode"
+                  placeholder="e.g., EFHB775"
+                  value={newCode}
+                  onChange={(event) => {
+                    setNewCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""));
+                    setTeacherName("");
+                    setTeacherEmail("");
+                    setExpirationDate("");
+                    setStudentLimit("");
+                    setCodeValidation({ checked: false, valid: false });
+                  }}
+                  disabled={isSubmittingCode}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleValidateCode}
+                  disabled={isValidatingCode || isSubmittingCode}
+                >
+                  {isValidatingCode ? "Validating..." : "Validate"}
+                </Button>
+              </div>
+                  {codeValidation.checked && (
+                    <p
+                      className={`text-sm ${
+                        codeValidation.valid ? "text-green-600" : "text-yellow-600"
+                      }`}
+                    >
+                      {codeValidation.valid
+                        ? "Valid teacher code found"
+                        : codeValidation.message || "Teacher account not found"}
+                    </p>
+                  )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="teacherName">Teacher Name</Label>
+                <Input
+                  id="teacherName"
+                  placeholder="John Smith"
+                  value={teacherName}
+                  onChange={(event) => setTeacherName(event.target.value)}
+                  disabled={isSubmittingCode}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="teacherEmail">Teacher Email</Label>
+                <Input
+                  id="teacherEmail"
+                  type="email"
+                  placeholder="teacher@school.com"
+                  value={teacherEmail}
+                  onChange={(event) => setTeacherEmail(event.target.value)}
+                  disabled={isSubmittingCode}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="expiration">Expiration Date</Label>
+                <Input id="expiration" type="date" value={expirationDate} disabled />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="limit">Student Limit</Label>
+                <Input id="limit" type="number" value={studentLimit} disabled />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddTeacherCode}
+              disabled={isSubmittingCode || isValidatingCode || !codeValidation.classCode}
+            >
+              {isSubmittingCode ? "Adding..." : "Add Teacher Code"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!transferTeacher}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeTransferDialog();
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Transfer Teacher Assignment</DialogTitle>
+            <DialogDescription>
+              Move {transferTeacher?.name}&apos;s assigned teacher code and linked
+              students to another teacher without an active teacher code or
+              students.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Current Teacher Code</Label>
+              <div>
+                <Badge variant="secondary" className="font-mono">
+                  {transferTeacher
+                    ? getAssignedCodeForTeacher(transferTeacher.uid)?.code ||
+                      transferTeacher.teacherCode
+                    : "-"}
+                </Badge>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="targetTeacher">New Teacher</Label>
+              <Select value={targetTeacherUid} onValueChange={setTargetTeacherUid}>
+                <SelectTrigger id="targetTeacher">
+                  <SelectValue placeholder="Select a teacher" />
+                </SelectTrigger>
+                <SelectContent>
+                  {getTransferTargets().map((teacher) => (
+                    <SelectItem key={teacher.uid} value={teacher.uid}>
+                      {teacher.name} ({teacher.email})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {getTransferTargets().length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No eligible teachers found. The new teacher must not have an
+                  active teacher code or assigned students.
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeTransferDialog}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleTransferAssignment}
+              disabled={isTransferring || !targetTeacherUid}
+            >
+              {isTransferring ? "Transferring..." : "Transfer Assignment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }

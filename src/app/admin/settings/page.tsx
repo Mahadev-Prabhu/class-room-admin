@@ -7,14 +7,27 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { updateAdmin } from "@/lib/firebase-service";
 import { SchoolDetails } from "@/lib/types";
+import { formatDisplayName } from "@/lib/utils";
 
 export default function SettingsPage() {
-  const { admin } = useAuth();
+  const { admin, logout } = useAuth();
+  const signInDetails = admin?.sign_in_details;
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSignOutDialogOpen, setIsSignOutDialogOpen] = useState(false);
   const [formData, setFormData] = useState<SchoolDetails>(
     admin?.school_details || {
       school_name: "",
@@ -80,11 +93,11 @@ export default function SettingsPage() {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label className="text-muted-foreground">Name</Label>
-              <p className="font-medium">{admin?.name}</p>
+              <p className="font-medium">{formatDisplayName(signInDetails?.name)}</p>
             </div>
             <div className="space-y-2">
               <Label className="text-muted-foreground">Email</Label>
-              <p className="font-medium">{admin?.email}</p>
+              <p className="font-medium">{signInDetails?.email || signInDetails?.sign_in_email}</p>
             </div>
             <div className="space-y-2">
               <Label className="text-muted-foreground">Role</Label>
@@ -101,8 +114,8 @@ export default function SettingsPage() {
             <div className="space-y-2">
               <Label className="text-muted-foreground">Account Created</Label>
               <p className="font-medium">
-                {admin?.created_at
-                  ? new Date(admin.created_at).toLocaleDateString()
+                {signInDetails?.created_at
+                  ? new Date(signInDetails.created_at).toLocaleDateString()
                   : "Unknown"}
               </p>
             </div>
@@ -110,32 +123,32 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* School Information */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>School Information</CardTitle>
-              <CardDescription>Your school or center details</CardDescription>
-            </div>
-            {!isEditing && (
-              <Button variant="outline" onClick={() => setIsEditing(true)}>
-                Edit
-              </Button>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {isEditing ? (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="school_name">School/Center Name</Label>
-                <Input
-                  id="school_name"
-                  value={formData.school_name}
-                  onChange={(e) => handleChange("school_name", e.target.value)}
-                />
+      {admin?.role !== "super_admin" && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>School Information</CardTitle>
+                <CardDescription>Your school or center details</CardDescription>
               </div>
+              {!isEditing && (
+                <Button variant="outline" onClick={() => setIsEditing(true)}>
+                  Edit
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {isEditing ? (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="school_name">School/Center Name</Label>
+                  <Input
+                    id="school_name"
+                    value={formData.school_name}
+                    onChange={(e) => handleChange("school_name", e.target.value)}
+                  />
+                </div>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
@@ -208,7 +221,7 @@ export default function SettingsPage() {
                 <div className="space-y-2">
                   <Label className="text-muted-foreground">School Name</Label>
                   <p className="font-medium">
-                    {admin?.school_details?.school_name || "Not set"}
+                    {formatDisplayName(admin?.school_details?.school_name) || "Not set"}
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -237,39 +250,51 @@ export default function SettingsPage() {
                   )}
                 </p>
               </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Danger Zone */}
-      <Card className="border-destructive/50">
-        <CardHeader>
-          <CardTitle className="text-destructive">Danger Zone</CardTitle>
-          <CardDescription>
-            Irreversible actions that affect your account
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between p-4 border rounded-lg">
+      <Card>
+        <CardContent className="py-6">
+          <div className="flex items-center justify-between">
             <div>
-              <p className="font-medium">Sign Out</p>
+              <CardTitle>Sign Out</CardTitle>
               <p className="text-sm text-muted-foreground">
                 Sign out of your admin account
               </p>
             </div>
             <Button
               variant="outline"
-              onClick={() => {
-                // Will be handled by auth context
-                window.location.href = "/login";
-              }}
+              className="text-destructive hover:text-destructive"
+              onClick={() => setIsSignOutDialogOpen(true)}
             >
               Sign Out
             </Button>
           </div>
         </CardContent>
       </Card>
+
+      <AlertDialog open={isSignOutDialogOpen} onOpenChange={setIsSignOutDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure you want to sign out?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You will need to sign in again to access the admin portal.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => logout()}
+              className="bg-destructive text-white hover:bg-destructive/90 hover:text-white"
+            >
+              Sign Out
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

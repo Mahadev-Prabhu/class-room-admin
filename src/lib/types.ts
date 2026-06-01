@@ -1,9 +1,14 @@
 // Firebase User Types based on existing database structure
 
 export interface SignInDetails {
+  created_at?: string;
   device_id: string;
   device_type: string;
+  email?: string;
+  is_active?: boolean;
+  is_setup_complete?: boolean;
   is_sign_in: boolean;
+  name?: string;
   sign_in_email: string;
   sign_in_time: string;
 }
@@ -36,11 +41,13 @@ export interface TeacherDetails {
 
 export interface StudentLink {
   child_mail: string;
+  assigned?: Record<string, string>;
 }
 
 // Teacher user in Firebase
 export interface TeacherUser {
   is_teacher: true;
+  role?: undefined;
   teacher_code: string;
   teacher_details: TeacherDetails;
   sign_in_details: SignInDetails;
@@ -52,13 +59,12 @@ export interface TeacherUser {
 // Student/Parent user in Firebase
 export interface StudentUser {
   is_teacher: false;
+  role?: undefined;
   sign_in_details: SignInDetails;
   fcm_token?: string;
   last_used?: string;
   children: Record<string, ChildProfile>;
 }
-
-export type FirebaseUser = TeacherUser | StudentUser;
 
 // Admin Types (new structure)
 export type AdminRole = "super_admin" | "school_admin" | "viewer";
@@ -78,25 +84,42 @@ export interface Admin {
   email: string;
   name: string;
   role: AdminRole;
+  sign_in_details?: SignInDetails;
   school_details?: SchoolDetails;
   assigned_class_codes?: string[];
+  teachers?: Record<string, AdminTeacher>;
   created_at: string;
   created_by?: string;
   is_active: boolean;
   is_setup_complete: boolean;
 }
 
-// Class Code structure
+export interface AdminUser extends Omit<Admin, "uid"> {
+  is_teacher?: false;
+  children?: undefined;
+}
+
+export type FirebaseUser = TeacherUser | StudentUser | AdminUser;
+
+// Teacher Code structure
 export interface ClassCode {
   code: string;
   teacher_uid?: string;
   teacher_name?: string;
   teacher_email?: string;
   school_admin_uid?: string;
+  school_admin_name?: string;
   expiration_date?: string;
   student_limit?: number;
   class_name?: string;
   created_at: string;
+}
+
+export interface AdminTeacher {
+  uid: string;
+  school_admin_uid: string;
+  teacher_code: string;
+  assigned_at: string;
 }
 
 // View models for UI
@@ -108,6 +131,8 @@ export interface TeacherListItem {
   teacherCode: string;
   studentCount: number;
   lastSignIn: string;
+  classAssignmentsCount: number;
+  individualAssignmentsCount: number;
 }
 
 export interface StudentListItem {
@@ -119,7 +144,9 @@ export interface StudentListItem {
     age: string;
     booksRead: number;
     totalPoints: number;
+    resourcesCount: number;
     teacherCode: string;
+    teacherUid?: string;
     teacherName?: string;
   }[];
   lastUsed: string;

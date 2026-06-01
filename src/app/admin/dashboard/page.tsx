@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchDashboardStats } from "@/lib/firebase-service";
 import { DashboardStats } from "@/lib/types";
+import { formatDisplayName } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 
 export default function DashboardPage() {
@@ -13,8 +14,10 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function loadStats() {
+      if (!admin) return;
+
       try {
-        const data = await fetchDashboardStats();
+        const data = await fetchDashboardStats(admin);
         setStats(data);
       } catch (error) {
         console.error("Failed to load dashboard stats:", error);
@@ -24,7 +27,7 @@ export default function DashboardPage() {
     }
 
     loadStats();
-  }, []);
+  }, [admin]);
 
   const statCards = [
     {
@@ -137,9 +140,9 @@ export default function DashboardPage() {
       bgColor: "bg-teal-50",
     },
     {
-      title: "Class Codes",
+      title: "Teacher Codes",
       value: stats?.classCodes || 0,
-      description: "Managed class codes",
+      description: "Managed teacher codes",
       icon: (
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -164,7 +167,7 @@ export default function DashboardPage() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
         <p className="text-muted-foreground">
-          Welcome back, {admin?.name}! Here&apos;s an overview of your school.
+          Welcome back, {formatDisplayName(admin?.sign_in_details?.name)}! Here&apos;s an overview of your school.
         </p>
       </div>
 
@@ -176,7 +179,9 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="grid gap-1 text-sm">
-              <div className="font-medium text-lg">{admin.school_details.school_name}</div>
+              <div className="font-medium text-lg">
+                {formatDisplayName(admin.school_details.school_name)}
+              </div>
               <div className="text-muted-foreground">
                 {admin.school_details.address_1}
                 {admin.school_details.address_2 && `, ${admin.school_details.address_2}`}
@@ -240,8 +245,8 @@ export default function DashboardPage() {
                 </svg>
               </div>
               <div>
-                <div className="font-medium">Add Class Code</div>
-                <div className="text-sm text-muted-foreground">Assign a new class</div>
+                <div className="font-medium">Add Teacher Code</div>
+                <div className="text-sm text-muted-foreground">Create or assign a teacher code</div>
               </div>
             </a>
             <a

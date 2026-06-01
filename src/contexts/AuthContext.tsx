@@ -8,13 +8,10 @@ import {
   signOut,
   sendPasswordResetEmail,
   onAuthStateChanged,
-  GoogleAuthProvider,
-  signInWithPopup,
-  OAuthProvider,
 } from "firebase/auth";
 import { ref, get, set } from "firebase/database";
 import { auth, database } from "@/lib/firebase";
-import { Admin, SchoolDetails } from "@/lib/types";
+import { Admin, SchoolDetails, SignInDetails } from "@/lib/types";
 
 interface AuthContextType {
   user: User | null;
@@ -22,9 +19,7 @@ interface AuthContextType {
   loading: boolean;
   error: string | null;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, name: string) => Promise<void>;
-  signInWithGoogle: () => Promise<void>;
-  signInWithApple: () => Promise<void>;
+  signUpSuperAdmin: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   completeAdminSetup: (schoolDetails: SchoolDetails) => Promise<void>;
@@ -32,6 +27,101 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const ADMIN_DEVICE_ID_KEY = "classroom_admin_device_id";
+
+function formatSignInTime(date: Date) {
+  const pad = (value: number) => value.toString().padStart(2, "0");
+
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+  ].join("-") + ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function getDeviceId() {
+  if (typeof window === "undefined") {
+    return "web";
+  }
+
+  const existingDeviceId = window.localStorage.getItem(ADMIN_DEVICE_ID_KEY);
+  if (existingDeviceId) {
+    return existingDeviceId;
+  }
+
+  const deviceId =
+    typeof window.crypto?.randomUUID === "function"
+      ? window.crypto.randomUUID().toUpperCase()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`.toUpperCase();
+
+  window.localStorage.setItem(ADMIN_DEVICE_ID_KEY, deviceId);
+  return deviceId;
+}
+
+function createSignInDetails(
+  email: string,
+  isSignIn: boolean,
+  adminDetails?: Pick<Admin, "created_at" | "email" | "is_active" | "is_setup_complete" | "name">
+): SignInDetails {
+  return {
+    created_at: adminDetails?.created_at || "",
+    device_id: getDeviceId(),
+    device_type: "web",
+    email: adminDetails?.email || email,
+    is_active: adminDetails?.is_active ?? true,
+    is_setup_complete: adminDetails?.is_setup_complete ?? false,
+    is_sign_in: isSignIn,
+    name: adminDetails?.name || "",
+    sign_in_email: email,
+    sign_in_time: formatSignInTime(new Date()),
+  };
+}
+
+function normalizeAdmin(uid: string, value: Partial<Admin>): Admin {
+  const signInDetails = value.sign_in_details;
+  const email = value.email || signInDetails?.email || signInDetails?.sign_in_email || "";
+  const name = value.name || signInDetails?.name || "";
+  const createdAt = value.created_at || signInDetails?.created_at || "";
+  const isActive = value.is_active ?? signInDetails?.is_active ?? true;
+  const isSetupComplete = value.is_setup_complete ?? signInDetails?.is_setup_complete ?? false;
+
+  return {
+    ...value,
+    uid,
+    email,
+    name,
+    role: value.role || "school_admin",
+    created_at: createdAt,
+    is_active: isActive,
+    is_setup_complete: isSetupComplete,
+    sign_in_details: signInDetails
+      ? {
+          ...signInDetails,
+          email,
+          name,
+          created_at: createdAt,
+          is_active: isActive,
+          is_setup_complete: isSetupComplete,
+        }
+      : undefined,
+  } as Admin;
+}
+
+function createAdminUserRecord(admin: Admin, signInDetails: SignInDetails) {
+  return {
+    role: admin.role,
+    sign_in_details: signInDetails,
+    ...(admin.school_details ? { school_details: admin.school_details } : {}),
+    ...(admin.assigned_class_codes ? { assigned_class_codes: admin.assigned_class_codes } : {}),
+    ...(admin.teachers ? { teachers: admin.teachers } : {}),
+    ...(admin.created_by ? { created_by: admin.created_by } : {}),
+  };
+}
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -46,11 +136,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const fetchAdminData = async (uid: string): Promise<Admin | null> => {
     if (!database) return null;
     try {
-      const adminRef = ref(database, `admins/${uid}`);
-      const snapshot = await get(adminRef);
+      const userRef = ref(database, `users/${uid}`);
+      const snapshot = await get(userRef);
       if (snapshot.exists()) {
-        return { uid, ...snapshot.val() } as Admin;
+        const value = snapshot.val();
+        if (value?.role) {
+          return normalizeAdmin(uid, value);
+        }
       }
+
+      const legacyAdminRef = ref(database, `admins/${uid}`);
+      const legacySnapshot = await get(legacyAdminRef);
+      if (legacySnapshot.exists()) {
+        return normalizeAdmin(uid, legacySnapshot.val());
+      }
+
       return null;
     } catch (err) {
       console.error("Error fetching admin data:", err);
@@ -69,7 +169,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(firebaseUser);
       
       if (firebaseUser) {
-        const adminData = await fetchAdminData(firebaseUser.uid);
+        let adminData = await fetchAdminData(firebaseUser.uid);
+        if (!adminData) {
+          await wait(500);
+          adminData = await fetchAdminData(firebaseUser.uid);
+        }
+
         if (adminData) {
           setAdmin(adminData);
         } else {
@@ -87,7 +192,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    if (!auth) throw new Error("Firebase not configured");
+    if (!auth || !database) throw new Error("Firebase not configured");
     try {
       setError(null);
       setLoading(true);
@@ -100,130 +205,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error("This account is not registered as an admin. Please contact support.");
       }
       
-      if (!adminData.is_active) {
+      if (!adminData.sign_in_details?.is_active) {
         await signOut(auth);
         throw new Error("Your admin account has been deactivated. Please contact support.");
       }
       
-      setAdmin(adminData);
+      const adminEmail = adminData.sign_in_details?.email || adminData.sign_in_details?.sign_in_email || email;
+      const signInDetails = createSignInDetails(adminEmail, true, adminData);
+      await set(
+        ref(database, `users/${result.user.uid}/sign_in_details`),
+        signInDetails
+      );
+
+      setAdmin({
+        ...adminData,
+        sign_in_details: signInDetails,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to sign in";
-      setError(message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const signUp = async (email: string, password: string, name: string) => {
-    if (!auth || !database) throw new Error("Firebase not configured");
-    try {
-      setError(null);
-      setLoading(true);
-      const result = await createUserWithEmailAndPassword(auth, email, password);
-      
-      // Create admin record
-      const newAdmin: Omit<Admin, "uid"> = {
-        email,
-        name,
-        role: "school_admin",
-        created_at: new Date().toISOString(),
-        is_active: true,
-        is_setup_complete: false,
-      };
-      
-      const adminRef = ref(database, `admins/${result.user.uid}`);
-      await set(adminRef, newAdmin);
-      
-      setAdmin({ uid: result.user.uid, ...newAdmin });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to create account";
-      setError(message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const signInWithGoogle = async () => {
-    if (!auth || !database) throw new Error("Firebase not configured");
-    try {
-      setError(null);
-      setLoading(true);
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      
-      // Check if admin exists
-      let adminData = await fetchAdminData(result.user.uid);
-      
-      if (!adminData) {
-        // Create new admin record for Google sign-in
-        const newAdmin: Omit<Admin, "uid"> = {
-          email: result.user.email || "",
-          name: result.user.displayName || "",
-          role: "school_admin",
-          created_at: new Date().toISOString(),
-          is_active: true,
-          is_setup_complete: false,
-        };
-        
-        const adminRef = ref(database, `admins/${result.user.uid}`);
-        await set(adminRef, newAdmin);
-        adminData = { uid: result.user.uid, ...newAdmin };
-      }
-      
-      if (!adminData.is_active) {
-        await signOut(auth);
-        throw new Error("Your admin account has been deactivated. Please contact support.");
-      }
-      
-      setAdmin(adminData);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to sign in with Google";
-      setError(message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const signInWithApple = async () => {
-    if (!auth || !database) throw new Error("Firebase not configured");
-    try {
-      setError(null);
-      setLoading(true);
-      const provider = new OAuthProvider("apple.com");
-      provider.addScope("email");
-      provider.addScope("name");
-      const result = await signInWithPopup(auth, provider);
-      
-      // Check if admin exists
-      let adminData = await fetchAdminData(result.user.uid);
-      
-      if (!adminData) {
-        // Create new admin record for Apple sign-in
-        const newAdmin: Omit<Admin, "uid"> = {
-          email: result.user.email || "",
-          name: result.user.displayName || "",
-          role: "school_admin",
-          created_at: new Date().toISOString(),
-          is_active: true,
-          is_setup_complete: false,
-        };
-        
-        const adminRef = ref(database, `admins/${result.user.uid}`);
-        await set(adminRef, newAdmin);
-        adminData = { uid: result.user.uid, ...newAdmin };
-      }
-      
-      if (!adminData.is_active) {
-        await signOut(auth);
-        throw new Error("Your admin account has been deactivated. Please contact support.");
-      }
-      
-      setAdmin(adminData);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to sign in with Apple";
       setError(message);
       throw err;
     } finally {
@@ -235,12 +234,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!auth) throw new Error("Firebase not configured");
     try {
       setError(null);
+      if (database && user && admin) {
+        const adminEmail = admin.sign_in_details?.email || admin.sign_in_details?.sign_in_email || "";
+        await set(
+          ref(database, `users/${user.uid}/sign_in_details`),
+          createSignInDetails(adminEmail, false, admin)
+        );
+      }
       await signOut(auth);
       setAdmin(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to sign out";
       setError(message);
       throw err;
+    }
+  };
+
+  const signUpSuperAdmin = async (
+    email: string,
+    password: string,
+    name: string
+  ) => {
+    if (!auth || !database) throw new Error("Firebase not configured");
+    try {
+      setError(null);
+      setLoading(true);
+      const result = await createUserWithEmailAndPassword(auth, email, password);
+      const createdAt = new Date().toISOString();
+      const newAdmin: Admin = {
+        uid: result.user.uid,
+        email,
+        name,
+        role: "super_admin",
+        created_at: createdAt,
+        is_active: true,
+        is_setup_complete: true,
+      };
+      newAdmin.sign_in_details = createSignInDetails(email, true, newAdmin);
+
+      await set(
+        ref(database, `users/${result.user.uid}`),
+        createAdminUserRecord(newAdmin, newAdmin.sign_in_details)
+      );
+
+      setUser(result.user);
+      setAdmin(newAdmin);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create account";
+      setError(message);
+      throw err;
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -264,17 +308,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     try {
       setError(null);
-      const adminRef = ref(database, `admins/${user.uid}`);
-      await set(adminRef, {
+      const updatedAdmin = {
         ...admin,
         school_details: schoolDetails,
         is_setup_complete: true,
-      });
+      };
+      const adminEmail = admin.sign_in_details?.email || admin.sign_in_details?.sign_in_email || "";
+      const signInDetails = createSignInDetails(adminEmail, true, updatedAdmin);
+      const userRef = ref(database, `users/${user.uid}`);
+      await set(userRef, createAdminUserRecord(updatedAdmin, signInDetails));
       
       setAdmin({
-        ...admin,
-        school_details: schoolDetails,
-        is_setup_complete: true,
+        ...updatedAdmin,
+        sign_in_details: signInDetails,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to complete setup";
@@ -315,9 +361,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         error,
         signIn,
-        signUp,
-        signInWithGoogle,
-        signInWithApple,
+        signUpSuperAdmin,
         logout,
         resetPassword,
         completeAdminSetup,

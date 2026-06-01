@@ -14,7 +14,7 @@ export default function AuthLayout({
 
   useEffect(() => {
     if (!loading && user && admin) {
-      if (!admin.is_setup_complete) {
+      if (!admin.sign_in_details?.is_setup_complete) {
         router.push("/setup");
       } else {
         router.push("/admin/dashboard");

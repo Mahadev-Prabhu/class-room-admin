@@ -1,12 +1,12 @@
 # Early Learning Library - Admin Portal
 
-A modern admin portal for managing Early Learning Library teachers, students, and class codes. Built with Next.js, Firebase, and Tailwind CSS.
+A modern admin portal for managing Early Learning Library teachers, students, and teacher codes. Built with Next.js, Firebase, and Tailwind CSS.
 
 ## Features
 
 - **Authentication**: Email/password, Google, and Apple sign-in
 - **Dashboard**: Overview of teachers, students, and reading statistics
-- **Class Codes Management**: Add, validate, and manage class codes
+- **Teacher Codes Management**: Add, validate, and manage teacher codes
 - **Teachers Management**: View all teachers and their students
 - **Students Management**: View, move between classes, and delete students
 - **School Settings**: Manage school/center information
@@ -156,7 +156,7 @@ Add these rules to your Firebase Realtime Database:
 ```
 src/
 ├── app/
-│   ├── (auth)/           # Auth pages (login, signup, forgot-password)
+│   ├── (auth)/           # Auth pages (login, forgot-password)
 │   ├── admin/            # Admin pages (dashboard, teachers, students, etc.)
 │   ├── setup/            # Admin setup page
 │   ├── layout.tsx        # Root layout
