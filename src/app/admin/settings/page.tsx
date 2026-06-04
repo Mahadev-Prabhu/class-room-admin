@@ -20,7 +20,7 @@ import {
 import { toast } from "sonner";
 import { updateAdmin } from "@/lib/firebase-service";
 import { SchoolDetails } from "@/lib/types";
-import { formatDisplayName } from "@/lib/utils";
+import { formatDisplayName, formatUsDate } from "@/lib/utils";
 
 export default function SettingsPage() {
   const { admin, logout } = useAuth();
@@ -114,9 +114,7 @@ export default function SettingsPage() {
             <div className="space-y-2">
               <Label className="text-muted-foreground">Account Created</Label>
               <p className="font-medium">
-                {signInDetails?.created_at
-                  ? new Date(signInDetails.created_at).toLocaleDateString()
-                  : "Unknown"}
+                {formatUsDate(signInDetails?.created_at, "Unknown")}
               </p>
             </div>
           </div>

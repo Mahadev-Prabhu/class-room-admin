@@ -27,3 +27,26 @@ export function formatDisplayName(value?: string | null) {
     })
     .join("");
 }
+
+export function formatUsDate(value?: string | null, fallback = "-") {
+  if (!value) {
+    return fallback;
+  }
+
+  const isoDateMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoDateMatch) {
+    const [, year, month, day] = isoDateMatch;
+    return `${month}/${day}/${year}`;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return fallback;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  }).format(date);
+}

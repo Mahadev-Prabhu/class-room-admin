@@ -43,7 +43,7 @@ import { Badge } from "@/components/ui/badge";
 import { TruncatedText } from "@/components/admin/TruncatedText";
 import { Info } from "lucide-react";
 import { toast } from "sonner";
-import { formatDisplayName } from "@/lib/utils";
+import { formatDisplayName, formatUsDate } from "@/lib/utils";
 import {
   fetchStudents,
   fetchAdminStudents,
@@ -435,7 +435,7 @@ export default function StudentsPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-center text-muted-foreground text-sm">
-                          {student.lastUsed || "Never"}
+                      {formatUsDate(student.lastUsed, "Never")}
                         </TableCell>
                         <TableCell className="text-center">
                           <Button
@@ -587,7 +587,7 @@ export default function StudentsPage() {
                       Last Used
                     </div>
                     <div className="text-sm font-medium">
-                      {selectedStudent.lastUsed || "Never"}
+                      {formatUsDate(selectedStudent.lastUsed, "Never")}
                     </div>
                   </div>
                 </div>

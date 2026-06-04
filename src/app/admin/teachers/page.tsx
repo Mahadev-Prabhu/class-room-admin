@@ -43,6 +43,7 @@ import {
   transferTeacherAssignment,
 } from "@/lib/firebase-service";
 import { AdminTeacher, ClassCode, TeacherListItem } from "@/lib/types";
+import { formatUsDate } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 
 const getLocalDateValue = (date: Date) => {
@@ -353,8 +354,7 @@ export default function TeachersPage() {
       return "Never";
     }
 
-    const date = new Date(lastSignIn);
-    return Number.isNaN(date.getTime()) ? "Never" : date.toLocaleDateString();
+    return formatUsDate(lastSignIn, "Never");
   };
 
   return (

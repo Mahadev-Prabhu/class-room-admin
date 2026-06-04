@@ -35,7 +35,7 @@ import { Badge } from "@/components/ui/badge";
 import { TruncatedText } from "@/components/admin/TruncatedText";
 import { Copy, Eye, EyeOff, Info, Plus } from "lucide-react";
 import { toast } from "sonner";
-import { formatDisplayName } from "@/lib/utils";
+import { formatDisplayName, formatUsDate } from "@/lib/utils";
 import {
   activateAdmin,
   createSchoolAdminAccount,
@@ -463,9 +463,7 @@ export default function SchoolsPage() {
                   ["Zip Code", viewData.zipCode],
                   [
                     "Created",
-                    viewData.createdAt
-                      ? new Date(viewData.createdAt).toLocaleDateString()
-                      : "-",
+                    formatUsDate(viewData.createdAt),
                   ],
                   ["Teachers", `${viewData.teacherCount}`],
                   ["Setup", viewData.setupComplete ? "Complete" : "Pending"],

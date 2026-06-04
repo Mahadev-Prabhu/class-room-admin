@@ -36,6 +36,7 @@ import {
   fetchAdminTeachers,
 } from "@/lib/firebase-service";
 import { AdminTeacher, ClassCode, TeacherListItem } from "@/lib/types";
+import { formatUsDate } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 
 const getLocalDateValue = (date: Date) => {
@@ -636,7 +637,7 @@ export default function ClassCodesPage() {
                               variant={status === "Expired" ? "destructive" : "outline"}
                               className="whitespace-nowrap font-normal"
                             >
-                              {new Date(code.expiration_date).toLocaleDateString()}
+                              {formatUsDate(code.expiration_date)}
                             </Badge>
                           ) : (
                             <span className="text-muted-foreground">-</span>
@@ -750,7 +751,7 @@ export default function ClassCodesPage() {
                               variant={isExpired ? "destructive" : "outline"}
                               className="whitespace-nowrap font-normal"
                             >
-                              {new Date(code.expiration_date).toLocaleDateString()}
+                              {formatUsDate(code.expiration_date)}
                             </Badge>
                           ) : (
                             <span className="text-muted-foreground">-</span>
