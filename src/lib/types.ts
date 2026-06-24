@@ -47,7 +47,8 @@ export interface StudentLink {
 // Teacher user in Firebase
 export interface TeacherUser {
   is_teacher: true;
-  role?: undefined;
+  role?: AdminRole;
+  roles?: AccountRole[];
   teacher_code: string;
   teacher_details: TeacherDetails;
   sign_in_details: SignInDetails;
@@ -68,6 +69,7 @@ export interface StudentUser {
 
 // Admin Types (new structure)
 export type AdminRole = "super_admin" | "school_admin" | "viewer";
+export type AccountRole = AdminRole | "teacher";
 
 export interface SchoolDetails {
   school_name: string;
@@ -84,6 +86,7 @@ export interface Admin {
   email: string;
   name: string;
   role: AdminRole;
+  roles?: AccountRole[];
   sign_in_details?: SignInDetails;
   school_details?: SchoolDetails;
   assigned_class_codes?: string[];

@@ -17,6 +17,7 @@ import {
   ClassCode,
   Admin,
   AdminTeacher,
+  AccountRole,
 } from "./types";
 import { formatDisplayName } from "./utils";
 
@@ -590,10 +591,7 @@ export async function assignTeacherCodeToSchool(
 export async function deleteClassCode(code: string): Promise<void> {
   const db = getDatabase();
   const teacherCodeRef = ref(db, `teacher_codes/${code}`);
-  await update(teacherCodeRef, {
-    expiry_date: null,
-    used_by: null,
-  });
+  await remove(teacherCodeRef);
 }
 
 // Validate if a teacher code exists in the users
@@ -871,6 +869,7 @@ export async function createSchoolAdminAccount(
 
     await set(ref(db, `users/${result.user.uid}`), {
       role: "school_admin",
+      roles: ["school_admin"],
       created_by: createdBy,
       sign_in_details: {
         created_at: createdAt,
@@ -889,6 +888,83 @@ export async function createSchoolAdminAccount(
     await signOut(provisioningAuth).catch(() => undefined);
     await deleteApp(provisioningApp);
   }
+}
+
+export async function addSchoolAdminRoleToTeacher(
+  email: string,
+  createdBy: string
+): Promise<void> {
+  const db = getDatabase();
+  const normalizedEmail = email.trim().toLowerCase();
+  const usersSnapshot = await get(ref(db, "users"));
+
+  if (!usersSnapshot.exists()) {
+    throw new Error("Teacher account not found");
+  }
+
+  const users = usersSnapshot.val() as Record<string, FirebaseUser>;
+  const teacherEntry = Object.entries(users).find(([, user]) => {
+    if (user.is_teacher !== true) {
+      return false;
+    }
+
+    const teacherEmail =
+      user.sign_in_details?.email || user.sign_in_details?.sign_in_email || "";
+    return teacherEmail.trim().toLowerCase() === normalizedEmail;
+  });
+
+  if (!teacherEntry) {
+    throw new Error("Teacher account not found");
+  }
+
+  const [teacherUid, teacherValue] = teacherEntry;
+  const teacher = teacherValue as TeacherUser;
+  const existingRoles: AccountRole[] = Array.isArray(teacher.roles)
+    ? teacher.roles
+    : ["teacher"];
+
+  if (existingRoles.includes("school_admin")) {
+    throw new Error("This teacher is already a school admin");
+  }
+
+  const teacherCodesSnapshot = await get(ref(db, "teacher_codes"));
+  const teacherCodes = teacherCodesSnapshot.exists()
+    ? (teacherCodesSnapshot.val() as Record<
+        string,
+        { used_by?: string; school_admin_uid?: string }
+      >)
+    : {};
+  const belongsToSchoolByCode = Object.values(teacherCodes).some(
+    (code) => code?.used_by === teacherUid && Boolean(code.school_admin_uid)
+  );
+  const belongsToSchoolByAdminRecord = Object.entries(users).some(
+    ([uid, user]) => {
+      if (uid === teacherUid) {
+        return false;
+      }
+
+      const possibleAdmin = user as Partial<Admin>;
+      const isSchoolAdmin =
+        possibleAdmin.role === "school_admin" ||
+        possibleAdmin.roles?.includes("school_admin");
+
+      return isSchoolAdmin && Boolean(possibleAdmin.teachers?.[teacherUid]);
+    }
+  );
+
+  if (belongsToSchoolByCode || belongsToSchoolByAdminRecord) {
+    throw new Error(
+      "This teacher already belongs to another school and cannot be converted to a school admin"
+    );
+  }
+
+  await update(ref(db, `users/${teacherUid}`), {
+    role: "school_admin",
+    roles: Array.from(new Set([...existingRoles, "teacher", "school_admin"])),
+    created_by: createdBy,
+    "sign_in_details/is_active": true,
+    "sign_in_details/is_setup_complete": false,
+  });
 }
 
 export async function sendSchoolAdminPasswordResetEmail(

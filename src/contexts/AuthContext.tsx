@@ -9,7 +9,7 @@ import {
   sendPasswordResetEmail,
   onAuthStateChanged,
 } from "firebase/auth";
-import { ref, get, set } from "firebase/database";
+import { ref, get, set, update } from "firebase/database";
 import { auth, database } from "@/lib/firebase";
 import { Admin, SchoolDetails, SignInDetails } from "@/lib/types";
 
@@ -86,12 +86,20 @@ function normalizeAdmin(uid: string, value: Partial<Admin>): Admin {
   const isActive = value.is_active ?? signInDetails?.is_active ?? true;
   const isSetupComplete = value.is_setup_complete ?? signInDetails?.is_setup_complete ?? false;
 
+  const roles = value.roles || (value.role ? [value.role] : []);
+  const role = roles.includes("super_admin")
+    ? "super_admin"
+    : roles.includes("school_admin")
+      ? "school_admin"
+      : value.role;
+
   return {
     ...value,
     uid,
     email,
     name,
-    role: value.role || "school_admin",
+    role: role || "school_admin",
+    roles,
     created_at: createdAt,
     is_active: isActive,
     is_setup_complete: isSetupComplete,
@@ -111,6 +119,7 @@ function normalizeAdmin(uid: string, value: Partial<Admin>): Admin {
 function createAdminUserRecord(admin: Admin, signInDetails: SignInDetails) {
   return {
     role: admin.role,
+    roles: admin.roles || [admin.role],
     sign_in_details: signInDetails,
     ...(admin.school_details ? { school_details: admin.school_details } : {}),
     ...(admin.assigned_class_codes ? { assigned_class_codes: admin.assigned_class_codes } : {}),
@@ -140,7 +149,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const snapshot = await get(userRef);
       if (snapshot.exists()) {
         const value = snapshot.val();
-        if (value?.role) {
+        if (
+          value?.role ||
+          value?.roles?.includes("school_admin") ||
+          value?.roles?.includes("super_admin")
+        ) {
           return normalizeAdmin(uid, value);
         }
       }
@@ -266,6 +279,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email,
         name,
         role: "super_admin",
+        roles: ["super_admin"],
         created_at: createdAt,
         is_active: true,
         is_setup_complete: true,
@@ -316,7 +330,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const adminEmail = admin.sign_in_details?.email || admin.sign_in_details?.sign_in_email || "";
       const signInDetails = createSignInDetails(adminEmail, true, updatedAdmin);
       const userRef = ref(database, `users/${user.uid}`);
-      await set(userRef, createAdminUserRecord(updatedAdmin, signInDetails));
+      await update(userRef, {
+        role: updatedAdmin.role,
+        roles: updatedAdmin.roles || [updatedAdmin.role],
+        school_details: schoolDetails,
+        sign_in_details: signInDetails,
+      });
       
       setAdmin({
         ...updatedAdmin,

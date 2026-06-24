@@ -6,11 +6,10 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { SchoolDetails } from "@/lib/types";
-import { formatDisplayName } from "@/lib/utils";
 
 const COUNTRIES = [
   "Afghanistan",
@@ -377,7 +376,7 @@ export default function SetupPage() {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-50 to-orange-100">
         <img
           src="/logo.png"
-          alt="Smart Kidz Club"
+          alt="Early Learning Library"
           className="w-20 h-20 rounded-2xl animate-pulse"
         />
       </div>
@@ -386,20 +385,20 @@ export default function SetupPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-50 to-orange-100 p-4">
-      <div className="w-full max-w-lg">
+      <div className="w-full max-w-lg space-y-8">
+        <h1 className="text-center text-2xl font-bold text-red-600 md:text-3xl">
+          Welcome to the Early Learning Library Admin Portal!
+        </h1>
         <Card className="shadow-xl">
           <CardHeader className="space-y-1 text-center">
             <div className="flex justify-center mb-4">
               <img
                 src="/logo.png"
-                alt="Smart Kidz Club"
+                alt="Early Learning Library"
                 className="w-20 h-20 rounded-2xl object-cover"
               />
             </div>
             <CardTitle className="text-2xl font-bold">Set Up Your School</CardTitle>
-            <CardDescription>
-              Welcome, {formatDisplayName(admin?.sign_in_details?.name)}! Let&apos;s set up your school information.
-            </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -520,7 +519,11 @@ export default function SetupPage() {
                 </div>
               </div>
 
-              <Button type="submit" className="w-full mt-6" disabled={isSubmitting}>
+              <Button
+                type="submit"
+                className="w-full mt-6 bg-[#155C8A] text-white hover:bg-[#0F4D78]"
+                disabled={isSubmitting}
+              >
                 {isSubmitting ? "Saving..." : "Complete Setup"}
               </Button>
             </form>

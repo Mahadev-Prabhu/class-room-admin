@@ -15,6 +15,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -23,14 +33,23 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { TruncatedText } from "@/components/admin/TruncatedText";
+import { ArrowUpDown, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   fetchClassCodes,
   createClassCode,
   addTeacherToAdmin,
   assignTeacherCodeToSchool,
+  deleteClassCode,
   updateClassCode,
   validateTeacherCode,
   fetchAdminTeachers,
@@ -66,10 +85,10 @@ const getClassCodeStatus = (classCode: ClassCode) => {
   }
 
   if (classCode.school_admin_uid) {
-    return "Assigned";
+    return "School Assigned";
   }
 
-  return "Used";
+  return "Teacher Claimed";
 };
 
 const getStatusVariant = (status: string) => {
@@ -80,10 +99,32 @@ const getStatusVariant = (status: string) => {
   return "secondary";
 };
 
-const getStatusClassName = (status: string) =>
-  status === "Assigned" ? "bg-green-600 text-white hover:bg-green-600" : "";
+const getStatusClassName = (status: string) => {
+  if (status === "School Assigned") {
+    return "bg-green-100 text-green-800 hover:bg-green-100";
+  }
+
+  if (status === "Teacher Claimed") {
+    return "bg-amber-100 text-amber-800 hover:bg-amber-100";
+  }
+
+  if (status === "Available") {
+    return "bg-blue-100 text-blue-800 hover:bg-blue-100";
+  }
+
+  return "";
+};
 
 const isAlphanumeric = (value: string) => /^[a-z0-9]+$/i.test(value);
+type SortField = "status" | "school";
+type SortDirection = "asc" | "desc";
+type CodeTypeFilter = "all" | "test" | "live";
+const STATUS_SORT_ORDER = {
+  "School Assigned": 0,
+  "Teacher Claimed": 1,
+  Available: 2,
+  Expired: 3,
+} as const;
 
 export default function ClassCodesPage() {
   const router = useRouter();
@@ -92,11 +133,16 @@ export default function ClassCodesPage() {
   const [teachers, setTeachers] = useState<TeacherListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [codeTypeFilter, setCodeTypeFilter] = useState<CodeTypeFilter>("all");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isValidatingCode, setIsValidatingCode] = useState(false);
   const [editingClassCode, setEditingClassCode] = useState<ClassCode | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [deletingClassCode, setDeletingClassCode] = useState<ClassCode | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [sortField, setSortField] = useState<SortField | null>("status");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   // Form state
   const [newCode, setNewCode] = useState("");
@@ -361,6 +407,27 @@ export default function ClassCodesPage() {
     }
   };
 
+  const openDeleteDialog = (classCode: ClassCode) => {
+    setDeletingClassCode(classCode);
+  };
+
+  const handleDeleteClassCode = async () => {
+    if (!deletingClassCode) return;
+
+    setIsDeleting(true);
+
+    try {
+      await deleteClassCode(deletingClassCode.code);
+      toast.success("Teacher code deleted successfully");
+      setDeletingClassCode(null);
+      await loadData();
+    } catch {
+      toast.error("Failed to delete teacher code");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const getTeacherForCode = (code: string) => {
     return teachers.find((t) => t.teacherCode === code);
   };
@@ -369,6 +436,15 @@ export default function ClassCodesPage() {
     const query = searchQuery.trim().toLowerCase();
     const teacher = getTeacherForCode(code.code);
     const status = getClassCodeStatus(code);
+    const isTestCode = code.code.toUpperCase().startsWith("TEST");
+
+    if (codeTypeFilter === "test" && !isTestCode) {
+      return false;
+    }
+
+    if (codeTypeFilter === "live" && isTestCode) {
+      return false;
+    }
 
     if (!query) {
       return true;
@@ -389,6 +465,57 @@ export default function ClassCodesPage() {
       .filter(Boolean)
       .some((value) => value!.toLowerCase().includes(query));
   });
+
+  const getExpirationSortValue = (code: ClassCode) => {
+    if (!code.expiration_date) {
+      return Number.POSITIVE_INFINITY;
+    }
+
+    const date = new Date(code.expiration_date);
+    return Number.isNaN(date.getTime()) ? Number.POSITIVE_INFINITY : date.getTime();
+  };
+
+  const sortedClassCodes = [...filteredClassCodes].sort((a, b) => {
+    if (!sortField) {
+      return 0;
+    }
+
+    const direction = sortDirection === "asc" ? 1 : -1;
+    const statusA = getClassCodeStatus(a) as keyof typeof STATUS_SORT_ORDER;
+    const statusB = getClassCodeStatus(b) as keyof typeof STATUS_SORT_ORDER;
+    const statusComparison = STATUS_SORT_ORDER[statusA] - STATUS_SORT_ORDER[statusB];
+
+    if (statusComparison !== 0) {
+      return statusComparison * (sortField === "status" ? direction : 1);
+    }
+
+    if (sortField === "school" && statusA === "School Assigned") {
+      return (
+        (a.school_admin_name || "").localeCompare(b.school_admin_name || "") *
+        direction
+      );
+    }
+
+    return getExpirationSortValue(a) - getExpirationSortValue(b);
+  });
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+
+    setSortField(field);
+    setSortDirection("asc");
+  };
+
+  const getSortLabel = (field: SortField) => {
+    if (sortField !== field) {
+      return "Sort";
+    }
+
+    return sortDirection === "asc" ? "Sorted ascending" : "Sorted descending";
+  };
 
   return (
     <div className="space-y-6">
@@ -554,19 +681,37 @@ export default function ClassCodesPage() {
         <Card>
           <CardHeader>
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <CardTitle>All Teacher Codes</CardTitle>
+              <div className="space-y-1">
+                <CardTitle>
+                  <Select
+                    value={codeTypeFilter}
+                    onValueChange={(value) =>
+                      setCodeTypeFilter(value as CodeTypeFilter)
+                    }
+                  >
+                    <SelectTrigger className="h-9 w-[190px] text-sm font-semibold">
+                      <SelectValue placeholder="Code type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Teacher Codes</SelectItem>
+                      <SelectItem value="test">Test Teacher Codes</SelectItem>
+                      <SelectItem value="live">Live Teacher Codes</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </CardTitle>
                 <CardDescription>
                   {filteredClassCodes.length} teacher code
                   {filteredClassCodes.length !== 1 ? "s" : ""} found
                 </CardDescription>
               </div>
-              <Input
-                placeholder="Search teacher codes..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full md:w-[280px]"
-              />
+              <div className="flex flex-col gap-2 md:flex-row md:items-center">
+                <Input
+                  placeholder="Search teacher codes..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full md:w-[280px]"
+                />
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -577,8 +722,8 @@ export default function ClassCodesPage() {
             ) : filteredClassCodes.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <p>
-                  {searchQuery.trim()
-                    ? "No teacher codes match your search."
+                  {searchQuery.trim() || codeTypeFilter !== "all"
+                    ? "No teacher codes match your filters."
                     : "No teacher codes found."}
                 </p>
               </div>
@@ -587,16 +732,38 @@ export default function ClassCodesPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[12%] text-center">Code</TableHead>
-                    <TableHead className="w-[22%] text-center">Used By</TableHead>
-                    <TableHead className="w-[20%] text-center">Assigned School</TableHead>
-                    <TableHead className="w-[13%] text-center">Student Limit</TableHead>
-                    <TableHead className="w-[14%] text-center">Expiry Date</TableHead>
-                    <TableHead className="w-[11%] text-center">Status</TableHead>
-                    <TableHead className="w-[8%] text-center">Actions</TableHead>
+                    <TableHead className="w-[17%] text-center">Used By</TableHead>
+                    <TableHead className="w-[21%] text-center">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mx-auto gap-1.5 px-2"
+                        onClick={() => handleSort("school")}
+                        aria-label={`${getSortLabel("school")} by assigned school`}
+                      >
+                        Assigned School
+                        <ArrowUpDown className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableHead>
+                    <TableHead className="w-[12%] text-center">Student Limit</TableHead>
+                    <TableHead className="w-[15%] text-center">Expiry Date</TableHead>
+                    <TableHead className="w-[13%] text-center">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mx-auto gap-1.5 px-2"
+                        onClick={() => handleSort("status")}
+                        aria-label={`${getSortLabel("status")} by status`}
+                      >
+                        Status
+                        <ArrowUpDown className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableHead>
+                    <TableHead className="w-[10%] text-center">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredClassCodes.map((code) => {
+                  {sortedClassCodes.map((code) => {
                     const status = getClassCodeStatus(code);
 
                     return (
@@ -607,18 +774,8 @@ export default function ClassCodesPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-center">
-                          <div className="space-y-1">
-                            <div className="font-medium">
-                              {code.teacher_name || "-"}
-                            </div>
-                            {code.teacher_email && (
-                              <div className="text-xs text-muted-foreground">
-                                <TruncatedText
-                                  value={code.teacher_email}
-                                  maxChars={28}
-                                />
-                              </div>
-                            )}
+                          <div className="font-medium">
+                            {code.teacher_name || "-"}
                           </div>
                         </TableCell>
                         <TableCell className="text-center">
@@ -652,13 +809,26 @@ export default function ClassCodesPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-center">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openEditDialog(code)}
-                          >
-                            Edit
-                          </Button>
+                          <div className="flex justify-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              aria-label={`Edit teacher code ${code.code}`}
+                              onClick={() => openEditDialog(code)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:text-destructive"
+                              aria-label={`Delete teacher code ${code.code}`}
+                              onClick={() => openDeleteDialog(code)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -821,7 +991,37 @@ export default function ClassCodesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
+      <AlertDialog
+        open={!!deletingClassCode}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeletingClassCode(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete teacher code {deletingClassCode?.code}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this record from /teacher_codes in
+              Firebase. If this code is used by a teacher or assigned to a
+              school, related teacher and school records will not be removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteClassCode}
+              disabled={isDeleting}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

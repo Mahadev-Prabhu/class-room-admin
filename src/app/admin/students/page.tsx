@@ -41,7 +41,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { TruncatedText } from "@/components/admin/TruncatedText";
-import { Info } from "lucide-react";
+import { ArrowUpDown, Info } from "lucide-react";
 import { toast } from "sonner";
 import { formatDisplayName, formatUsDate } from "@/lib/utils";
 import {
@@ -57,6 +57,9 @@ import {
 import { ClassCode, StudentListItem, TeacherListItem } from "@/lib/types";
 import { useAuth } from "@/contexts/AuthContext";
 
+type SortField = "teacherCode";
+type SortDirection = "asc" | "desc";
+
 const getLocalDateValue = () => {
   const today = new Date();
   const year = today.getFullYear();
@@ -70,6 +73,7 @@ export default function StudentsPage() {
   const { admin } = useAuth();
   const searchParams = useSearchParams();
   const teacherFilter = searchParams.get("teacher");
+  const schoolFilter = searchParams.get("school");
 
   const [students, setStudents] = useState<StudentListItem[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<StudentListItem[]>([]);
@@ -78,6 +82,8 @@ export default function StudentsPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTeacher, setSelectedTeacher] = useState<string>(teacherFilter || "all");
+  const [sortField, setSortField] = useState<SortField | null>("teacherCode");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   // Delete state
   const [deleteStudentId, setDeleteStudentId] = useState<string | null>(null);
@@ -121,6 +127,24 @@ export default function StudentsPage() {
     }
   }, [admin, loadData]);
 
+  const getStudentTeacherSortValue = (student: StudentListItem) => {
+    return Array.from(
+      new Set(student.children.map((child) => child.teacherCode || ""))
+    )
+      .filter(Boolean)
+      .sort()
+      .join(" ");
+  };
+
+  const getLastUsedSortValue = (student: StudentListItem) => {
+    if (!student.lastUsed || student.lastUsed === "Never") {
+      return 0;
+    }
+
+    const date = new Date(student.lastUsed);
+    return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+  };
+
   useEffect(() => {
     let filtered = [...students];
 
@@ -131,6 +155,25 @@ export default function StudentsPage() {
           (child) =>
             child.teacherUid === selectedTeacher ||
             child.teacherCode === selectedTeacher
+        )
+      );
+    }
+
+    if (admin?.role === "super_admin" && schoolFilter) {
+      const schoolTeacherUids = new Set(
+        classCodes
+          .filter((code) => code.school_admin_uid === schoolFilter && code.teacher_uid)
+          .map((code) => code.teacher_uid)
+      );
+
+      filtered = filtered.filter((student) =>
+        student.children.some(
+          (child) =>
+            schoolTeacherUids.has(child.teacherUid) ||
+            schoolTeacherUids.has(
+              teachers.find((teacher) => teacher.teacherCode === child.teacherCode)
+                ?.uid || ""
+            )
         )
       );
     }
@@ -147,8 +190,48 @@ export default function StudentsPage() {
       );
     }
 
+    filtered.sort((a, b) => {
+      const teacherComparison = getStudentTeacherSortValue(a).localeCompare(
+        getStudentTeacherSortValue(b)
+      );
+
+      if (teacherComparison !== 0) {
+        return teacherComparison * (sortDirection === "asc" ? 1 : -1);
+      }
+
+      return getLastUsedSortValue(b) - getLastUsedSortValue(a);
+    });
+
     setFilteredStudents(filtered);
-  }, [searchQuery, selectedTeacher, students]);
+  }, [
+    admin?.role,
+    classCodes,
+    schoolFilter,
+    searchQuery,
+    selectedTeacher,
+    sortDirection,
+    sortField,
+    students,
+    teachers,
+  ]);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+
+    setSortField(field);
+    setSortDirection("asc");
+  };
+
+  const getSortLabel = (field: SortField) => {
+    if (sortField !== field) {
+      return "Sort";
+    }
+
+    return sortDirection === "asc" ? "Sorted ascending" : "Sorted descending";
+  };
 
   const handleDeleteStudent = async () => {
     if (!deleteStudentId) return;
@@ -370,7 +453,18 @@ export default function StudentsPage() {
                 <TableRow>
                   <TableHead className="text-center">Parent Email</TableHead>
                   <TableHead className="text-center">Children</TableHead>
-                  <TableHead className="text-center">Teacher</TableHead>
+                  <TableHead className="text-center">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mx-auto gap-1.5 px-2"
+                      onClick={() => handleSort("teacherCode")}
+                      aria-label={`${getSortLabel("teacherCode")} by teacher code`}
+                    >
+                      Teacher
+                      <ArrowUpDown className="h-3.5 w-3.5" />
+                    </Button>
+                  </TableHead>
                   <TableHead className="text-center">Last Used</TableHead>
                   <TableHead className="w-[80px] text-center">Info</TableHead>
                   <TableHead className="text-center">Actions</TableHead>

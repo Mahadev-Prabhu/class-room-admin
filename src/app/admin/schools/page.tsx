@@ -37,6 +37,7 @@ import { Copy, Eye, EyeOff, Info, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { formatDisplayName, formatUsDate } from "@/lib/utils";
 import {
+  addSchoolAdminRoleToTeacher,
   activateAdmin,
   createSchoolAdminAccount,
   deactivateAdmin,
@@ -60,6 +61,7 @@ export default function SchoolsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isCreatingSchool, setIsCreatingSchool] = useState(false);
+  const [accountMode, setAccountMode] = useState<"new" | "existing_teacher">("new");
   const [newAdminName, setNewAdminName] = useState("");
   const [newAdminEmail, setNewAdminEmail] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
@@ -140,6 +142,7 @@ export default function SchoolsPage() {
   };
 
   const resetCreateForm = () => {
+    setAccountMode("new");
     setNewAdminName("");
     setNewAdminEmail("");
     setNewAdminPassword("");
@@ -150,7 +153,7 @@ export default function SchoolsPage() {
 
     if (!admin) return;
 
-    if (newAdminPassword.length < 6) {
+    if (accountMode === "new" && newAdminPassword.length < 6) {
       toast.error("Password must be at least 6 characters");
       return;
     }
@@ -158,17 +161,22 @@ export default function SchoolsPage() {
     setIsCreatingSchool(true);
 
     try {
-      await createSchoolAdminAccount(
-        newAdminEmail.trim(),
-        newAdminPassword,
-        newAdminName.trim(),
-        admin.uid
-      );
-      toast.success("School admin account created successfully");
-      setCreatedCredentials({
-        email: newAdminEmail.trim(),
-        password: newAdminPassword,
-      });
+      if (accountMode === "existing_teacher") {
+        await addSchoolAdminRoleToTeacher(newAdminEmail, admin.uid);
+        toast.success("School admin access added to the teacher account");
+      } else {
+        await createSchoolAdminAccount(
+          newAdminEmail.trim(),
+          newAdminPassword,
+          newAdminName.trim(),
+          admin.uid
+        );
+        toast.success("School admin account created successfully");
+        setCreatedCredentials({
+          email: newAdminEmail.trim(),
+          password: newAdminPassword,
+        });
+      }
       setIsCreateDialogOpen(false);
       resetCreateForm();
       await loadSchools();
@@ -268,7 +276,14 @@ export default function SchoolsPage() {
 
   const renderStatusBadge = (isActive: boolean, setupComplete: boolean) => (
     <Badge
-      variant={isActive ? "default" : "destructive"}
+      variant="outline"
+      className={
+        !isActive
+          ? "border-red-200 bg-red-50 text-red-700"
+          : setupComplete
+            ? "border-green-200 bg-green-50 text-green-700"
+            : "border-amber-200 bg-amber-50 text-amber-700"
+      }
     >
       {getStatusLabel(isActive, setupComplete)}
     </Badge>
@@ -283,7 +298,10 @@ export default function SchoolsPage() {
             View and manage school admin accounts in the system
           </p>
         </div>
-        <Button onClick={() => setIsCreateDialogOpen(true)}>
+        <Button
+          className="bg-[#155C8A] text-white hover:bg-[#0F4D78]"
+          onClick={() => setIsCreateDialogOpen(true)}
+        >
           <Plus className="h-4 w-4" />
           Create School Account
         </Button>
@@ -355,9 +373,9 @@ export default function SchoolsPage() {
                       </TableCell>
                       <TableCell className="text-center">
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="icon"
-                          className="h-8 w-8"
+                          className="h-8 w-8 border-[#155C8A] text-[#155C8A] hover:bg-[#155C8A] hover:text-white"
                           aria-label={`View details for ${viewData.schoolName}`}
                           onClick={() => setSelectedSchool(school)}
                         >
@@ -496,10 +514,33 @@ export default function SchoolsPage() {
                           </div>
                         ))}
                       </div>
-                      <div className="flex justify-end">
+                      <div className="flex flex-wrap justify-end gap-2">
                         <Button
                           variant="outline"
                           size="sm"
+                          className="border-[#155C8A] text-[#155C8A] hover:bg-[#155C8A] hover:text-white"
+                          onClick={() => {
+                            setSelectedSchool(null);
+                            router.push(`/admin/teachers?school=${selectedSchool.uid}`);
+                          }}
+                        >
+                          View Teachers
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-[#155C8A] text-[#155C8A] hover:bg-[#155C8A] hover:text-white"
+                          onClick={() => {
+                            setSelectedSchool(null);
+                            router.push(`/admin/students?school=${selectedSchool.uid}`);
+                          }}
+                        >
+                          View Students
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-[#155C8A] text-[#155C8A] hover:bg-[#155C8A] hover:text-white"
                           onClick={() => handleSendResetLink(viewData.email)}
                         >
                           Send reset password link
@@ -527,56 +568,98 @@ export default function SchoolsPage() {
           <DialogHeader>
             <DialogTitle>Create School Admin Account</DialogTitle>
             <DialogDescription>
-              Create login credentials to share with the school admin. School
-              details will be collected when they sign in for the first time.
+              Create a new login or give school admin access to an existing
+              teacher account.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreateSchoolAdmin} className="space-y-4">
-            <div className="space-y-2">
-              <label htmlFor="schoolAdminName" className="text-sm font-medium">
-                Admin Name
-              </label>
-              <Input
-                id="schoolAdminName"
-                value={newAdminName}
-                onChange={(event) => setNewAdminName(event.target.value)}
-                placeholder="School admin name"
-                required
+            <div className="grid grid-cols-2 gap-2 rounded-md bg-muted p-1">
+              <Button
+                type="button"
+                variant="ghost"
+                className={
+                  accountMode === "new"
+                    ? "bg-[#155C8A] text-white hover:bg-[#0F4D78] hover:text-white"
+                    : "hover:bg-white"
+                }
+                onClick={() => setAccountMode("new")}
                 disabled={isCreatingSchool}
-              />
+              >
+                New Account
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className={
+                  accountMode === "existing_teacher"
+                    ? "bg-[#155C8A] text-white hover:bg-[#0F4D78] hover:text-white"
+                    : "hover:bg-white"
+                }
+                onClick={() => setAccountMode("existing_teacher")}
+                disabled={isCreatingSchool}
+              >
+                Existing Teacher
+              </Button>
             </div>
+            {accountMode === "new" && (
+              <div className="space-y-2">
+                <label htmlFor="schoolAdminName" className="text-sm font-medium">
+                  Admin Name
+                </label>
+                <Input
+                  id="schoolAdminName"
+                  value={newAdminName}
+                  onChange={(event) => setNewAdminName(event.target.value)}
+                  placeholder="School admin name"
+                  required
+                  disabled={isCreatingSchool}
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <label htmlFor="schoolAdminEmail" className="text-sm font-medium">
-                Email
+                {accountMode === "existing_teacher" ? "Teacher Email" : "Email"}
               </label>
               <Input
                 id="schoolAdminEmail"
                 type="email"
                 value={newAdminEmail}
                 onChange={(event) => setNewAdminEmail(event.target.value)}
-                placeholder="school@example.com"
+                placeholder={
+                  accountMode === "existing_teacher"
+                    ? "teacher@example.com"
+                    : "school@example.com"
+                }
                 required
                 disabled={isCreatingSchool}
               />
             </div>
-            <div className="space-y-2">
-              <label htmlFor="schoolAdminPassword" className="text-sm font-medium">
-                Initial Password
-              </label>
-              <Input
-                id="schoolAdminPassword"
-                type="password"
-                value={newAdminPassword}
-                onChange={(event) => setNewAdminPassword(event.target.value)}
-                placeholder="Minimum 6 characters"
-                required
-                disabled={isCreatingSchool}
-              />
-              <p className="text-xs text-muted-foreground">
-                Share this password with the school admin. They can reset it from
-                the sign-in page.
+            {accountMode === "new" ? (
+              <div className="space-y-2">
+                <label htmlFor="schoolAdminPassword" className="text-sm font-medium">
+                  Initial Password
+                </label>
+                <Input
+                  id="schoolAdminPassword"
+                  type="password"
+                  value={newAdminPassword}
+                  onChange={(event) => setNewAdminPassword(event.target.value)}
+                  placeholder="Minimum 6 characters"
+                  required
+                  disabled={isCreatingSchool}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Share this password with the school admin. They can reset it
+                  from the sign-in page.
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                The teacher will use their existing email and password. Their
+                teacher code, students, children, and mobile app access will
+                remain unchanged.
               </p>
-            </div>
+            )}
             <DialogFooter>
               <Button
                 type="button"
@@ -586,8 +669,18 @@ export default function SchoolsPage() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isCreatingSchool}>
-                {isCreatingSchool ? "Creating..." : "Create Account"}
+              <Button
+                type="submit"
+                className="bg-[#155C8A] text-white hover:bg-[#0F4D78]"
+                disabled={isCreatingSchool}
+              >
+                {isCreatingSchool
+                  ? accountMode === "existing_teacher"
+                    ? "Adding Access..."
+                    : "Creating..."
+                  : accountMode === "existing_teacher"
+                    ? "Add School Admin Access"
+                    : "Create Account"}
               </Button>
             </DialogFooter>
           </form>

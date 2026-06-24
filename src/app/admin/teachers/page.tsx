@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { TruncatedText } from "@/components/admin/TruncatedText";
-import { Info, Plus, Users } from "lucide-react";
+import { ArrowUpDown, Info, Plus, Users } from "lucide-react";
 import { toast } from "sonner";
 import {
   fetchAdminTeachers,
@@ -56,8 +56,13 @@ const getLocalDateValue = (date: Date) => {
 
 const isAlphanumeric = (value: string) => /^[a-z0-9]+$/i.test(value);
 
+type SortDirection = "asc" | "desc";
+type SortField = "school" | "lastSignIn";
+
 export default function TeachersPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const schoolFilter = searchParams.get("school");
   const { admin } = useAuth();
   const [teachers, setTeachers] = useState<TeacherListItem[]>([]);
   const [filteredTeachers, setFilteredTeachers] = useState<TeacherListItem[]>([]);
@@ -71,6 +76,8 @@ export default function TeachersPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isSubmittingCode, setIsSubmittingCode] = useState(false);
   const [isValidatingCode, setIsValidatingCode] = useState(false);
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [newCode, setNewCode] = useState("");
   const [teacherName, setTeacherName] = useState("");
   const [teacherEmail, setTeacherEmail] = useState("");
@@ -111,21 +118,31 @@ export default function TeachersPage() {
   }, [loadTeachers]);
 
   useEffect(() => {
-    if (searchQuery.trim() === "") {
-      setFilteredTeachers(teachers);
-    } else {
+    let filtered = [...teachers];
+
+    if (admin?.role === "super_admin" && schoolFilter) {
+      const schoolTeacherUids = new Set(
+        classCodes
+          .filter((code) => code.school_admin_uid === schoolFilter && code.teacher_uid)
+          .map((code) => code.teacher_uid)
+      );
+
+      filtered = filtered.filter((teacher) => schoolTeacherUids.has(teacher.uid));
+    }
+
+    if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      setFilteredTeachers(
-        teachers.filter(
-          (teacher) =>
-            teacher.name.toLowerCase().includes(query) ||
-            teacher.email.toLowerCase().includes(query) ||
-            teacher.teacherCode.toLowerCase().includes(query) ||
-            teacher.school.toLowerCase().includes(query)
-        )
+      filtered = filtered.filter(
+        (teacher) =>
+          teacher.name.toLowerCase().includes(query) ||
+          teacher.email.toLowerCase().includes(query) ||
+          teacher.teacherCode.toLowerCase().includes(query) ||
+          teacher.school.toLowerCase().includes(query)
       );
     }
-  }, [searchQuery, teachers]);
+
+    setFilteredTeachers(filtered);
+  }, [admin?.role, classCodes, schoolFilter, searchQuery, teachers]);
 
   const handleViewStudents = (teacherUid: string) => {
     router.push(`/admin/students?teacher=${teacherUid}`);
@@ -357,6 +374,79 @@ export default function TeachersPage() {
     return formatUsDate(lastSignIn, "Never");
   };
 
+  const getLastSignInSortValue = (lastSignIn: string) => {
+    if (!lastSignIn || lastSignIn === "Never") {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    const normalizedDate = lastSignIn.includes(" ")
+      ? lastSignIn.replace(" ", "T")
+      : lastSignIn;
+    const date = new Date(normalizedDate);
+
+    return Number.isNaN(date.getTime())
+      ? Number.NEGATIVE_INFINITY
+      : date.getTime();
+  };
+
+  const isTestTeacherCode = (teacher: TeacherListItem) =>
+    teacher.teacherCode.toUpperCase().startsWith("TEST");
+
+  const sortedTeachers = [...filteredTeachers].sort((a, b) => {
+    const codeTypeComparison = Number(isTestTeacherCode(a)) - Number(isTestTeacherCode(b));
+
+    if (codeTypeComparison !== 0) {
+      return codeTypeComparison;
+    }
+
+    if (!sortField) {
+      return 0;
+    }
+
+    if (sortField === "school") {
+      return (
+        a.school.localeCompare(b.school) * (sortDirection === "asc" ? 1 : -1)
+      );
+    }
+
+    const aValue = getLastSignInSortValue(a.lastSignIn);
+    const bValue = getLastSignInSortValue(b.lastSignIn);
+
+    if (aValue === Number.NEGATIVE_INFINITY && bValue === Number.NEGATIVE_INFINITY) {
+      return 0;
+    }
+
+    if (aValue === Number.NEGATIVE_INFINITY) {
+      return 1;
+    }
+
+    if (bValue === Number.NEGATIVE_INFINITY) {
+      return -1;
+    }
+
+    return sortDirection === "asc"
+      ? aValue - bValue
+      : bValue - aValue;
+  });
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+
+    setSortField(field);
+    setSortDirection(field === "lastSignIn" ? "desc" : "asc");
+  };
+
+  const getSortLabel = (field: SortField) => {
+    if (sortField !== field) {
+      return "Sort";
+    }
+
+    return sortDirection === "asc" ? "Sorted ascending" : "Sorted descending";
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -369,7 +459,7 @@ export default function TeachersPage() {
         {admin?.role !== "super_admin" && (
           <Button
             onClick={() => setIsAddDialogOpen(true)}
-            className="bg-green-600 text-white shadow-sm hover:bg-green-700"
+            className="shadow-sm"
           >
             <Plus className="mr-2 h-4 w-4" />
             Add Teacher Code
@@ -412,8 +502,30 @@ export default function TeachersPage() {
                   <TableHead className="text-center">Name</TableHead>
                   <TableHead className="text-center">Teacher Code</TableHead>
                   <TableHead className="text-center">Students</TableHead>
-                  <TableHead className="text-center">School</TableHead>
-                  <TableHead className="text-center">Last Sign In</TableHead>
+                  <TableHead className="text-center">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mx-auto gap-1.5 px-2"
+                      onClick={() => handleSort("school")}
+                      aria-label={`${getSortLabel("school")} by school`}
+                    >
+                      School
+                      <ArrowUpDown className="h-3.5 w-3.5" />
+                    </Button>
+                  </TableHead>
+                  <TableHead className="text-center">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mx-auto gap-1.5 px-2"
+                      onClick={() => handleSort("lastSignIn")}
+                      aria-label={`${getSortLabel("lastSignIn")} by last sign in`}
+                    >
+                      Last Sign In
+                      <ArrowUpDown className="h-3.5 w-3.5" />
+                    </Button>
+                  </TableHead>
                   <TableHead className="w-[80px] text-center">Info</TableHead>
                   {admin?.role === "super_admin" && (
                     <TableHead className="text-center">Actions</TableHead>
@@ -421,7 +533,7 @@ export default function TeachersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredTeachers.map((teacher) => {
+                {sortedTeachers.map((teacher) => {
                   const assignedCode = getAssignedCodeForTeacher(teacher.uid);
 
                   return (
@@ -476,7 +588,7 @@ export default function TeachersPage() {
                                 size="sm"
                                 onClick={() => setTransferTeacher(teacher)}
                               >
-                                Transfer Assignment
+                                Move Students
                               </Button>
                             </div>
                           ) : (
@@ -729,7 +841,7 @@ export default function TeachersPage() {
       >
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>Transfer Teacher Assignment</DialogTitle>
+            <DialogTitle>Move Students</DialogTitle>
             <DialogDescription>
               Move {transferTeacher?.name}&apos;s assigned teacher code and linked
               students to another teacher without an active teacher code or
@@ -778,7 +890,7 @@ export default function TeachersPage() {
               onClick={handleTransferAssignment}
               disabled={isTransferring || !targetTeacherUid}
             >
-              {isTransferring ? "Transferring..." : "Transfer Assignment"}
+              {isTransferring ? "Moving..." : "Move Students"}
             </Button>
           </DialogFooter>
         </DialogContent>
