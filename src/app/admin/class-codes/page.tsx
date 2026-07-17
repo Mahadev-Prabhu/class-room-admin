@@ -50,6 +50,7 @@ import {
   addTeacherToAdmin,
   assignTeacherCodeToSchool,
   deleteClassCode,
+  deleteExpiredTeacherCode,
   updateClassCode,
   validateTeacherCode,
   fetchAdminTeachers,
@@ -91,6 +92,12 @@ const getClassCodeStatus = (classCode: ClassCode) => {
   return "Teacher Claimed";
 };
 
+const canDirectDeleteClassCode = (classCode: ClassCode) =>
+  !classCode.teacher_uid && !classCode.school_admin_uid;
+
+const canDeleteClassCode = (classCode: ClassCode) =>
+  getClassCodeStatus(classCode) === "Expired" || canDirectDeleteClassCode(classCode);
+
 const getStatusVariant = (status: string) => {
   if (status === "Expired") {
     return "destructive";
@@ -115,7 +122,12 @@ const getStatusClassName = (status: string) => {
   return "";
 };
 
-const isAlphanumeric = (value: string) => /^[a-z0-9]+$/i.test(value);
+const TEACHER_CODE_PATTERN = /^E[A-Z0-9]{3}\d{2,4}$/;
+const TEST_TEACHER_CODE_PATTERN = /^TEST\d{3,4}$/;
+const TEACHER_CODE_REQUIREMENTS =
+  "Teacher code must start with E, followed by 3 uppercase letters or numbers, and end with 2 to 4 numbers.";
+const isValidTeacherCodeFormat = (value: string) =>
+  TEACHER_CODE_PATTERN.test(value) || TEST_TEACHER_CODE_PATTERN.test(value);
 type SortField = "status" | "school";
 type SortDirection = "asc" | "desc";
 type CodeTypeFilter = "all" | "test" | "live";
@@ -275,8 +287,8 @@ export default function ClassCodesPage() {
       return;
     }
 
-    if (!isAlphanumeric(normalizedCode)) {
-      toast.error("Class code can contain only letters and numbers");
+    if (admin?.role === "super_admin" && !isValidTeacherCodeFormat(normalizedCode)) {
+      toast.error(TEACHER_CODE_REQUIREMENTS);
       return;
     }
 
@@ -408,6 +420,11 @@ export default function ClassCodesPage() {
   };
 
   const openDeleteDialog = (classCode: ClassCode) => {
+    if (!canDeleteClassCode(classCode)) {
+      toast.error("Only expired codes or unused codes can be deleted");
+      return;
+    }
+
     setDeletingClassCode(classCode);
   };
 
@@ -417,12 +434,33 @@ export default function ClassCodesPage() {
     setIsDeleting(true);
 
     try {
-      await deleteClassCode(deletingClassCode.code);
-      toast.success("Teacher code deleted successfully");
+      const status = getClassCodeStatus(deletingClassCode);
+
+      if (status === "Expired") {
+        const summary = await deleteExpiredTeacherCode(deletingClassCode.code);
+        toast.success(
+          `Teacher code deleted. Removed ${summary.deletedChildProfiles} child profile${
+            summary.deletedChildProfiles === 1 ? "" : "s"
+          } and ${summary.deletedParentAccounts} parent account${
+            summary.deletedParentAccounts === 1 ? "" : "s"
+          }.`
+        );
+      } else {
+        if (!canDirectDeleteClassCode(deletingClassCode)) {
+          toast.error("Only expired codes or unused codes can be deleted");
+          return;
+        }
+
+        await deleteClassCode(deletingClassCode.code);
+        toast.success("Teacher code deleted successfully");
+      }
+
       setDeletingClassCode(null);
       await loadData();
-    } catch {
-      toast.error("Failed to delete teacher code");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete teacher code"
+      );
     } finally {
       setIsDeleting(false);
     }
@@ -565,7 +603,12 @@ export default function ClassCodesPage() {
                     placeholder="e.g., EFHB775"
                     value={newCode}
                     onChange={(e) => {
-                      setNewCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""));
+                      setNewCode(
+                        e.target.value
+                          .toUpperCase()
+                          .replace(/[^A-Z0-9]/g, "")
+                          .slice(0, 8)
+                      );
                       setCodeValidation({ checked: false, valid: false });
                       setTeacherName("");
                       setTeacherEmail("");
@@ -584,6 +627,12 @@ export default function ClassCodesPage() {
                     </Button>
                   )}
                 </div>
+                {admin?.role === "super_admin" && (
+                  <p className="text-xs text-muted-foreground">
+                    Format: starts with E, then 3 uppercase letters/numbers,
+                    then 2 to 4 numbers.
+                  </p>
+                )}
                 {admin?.role !== "super_admin" && codeValidation.checked && (
                   <p
                     className={`text-sm ${
@@ -824,6 +873,7 @@ export default function ClassCodesPage() {
                               size="icon"
                               className="h-8 w-8 text-destructive hover:text-destructive"
                               aria-label={`Delete teacher code ${code.code}`}
+                              disabled={!canDeleteClassCode(code)}
                               onClick={() => openDeleteDialog(code)}
                             >
                               <Trash2 className="h-4 w-4" />
@@ -1004,10 +1054,42 @@ export default function ClassCodesPage() {
             <AlertDialogTitle>
               Delete teacher code {deletingClassCode?.code}?
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete this record from /teacher_codes in
-              Firebase. If this code is used by a teacher or assigned to a
-              school, related teacher and school records will not be removed.
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                {deletingClassCode &&
+                getClassCodeStatus(deletingClassCode) === "Expired" ? (
+                  <>
+                    <p>
+                      This expired teacher code will be deleted using backend
+                      cleanup.
+                    </p>
+                    <div>
+                      <p>This can permanently delete:</p>
+                      <ul className="mt-2 list-disc space-y-1 pl-5">
+                        <li>The teacher account using this code</li>
+                        <li>Teacher-student links for this code</li>
+                        <li>Child profiles connected to this teacher code</li>
+                        <li>
+                          Parent accounts only when all their child profiles are
+                          connected to this code
+                        </li>
+                      </ul>
+                    </div>
+                    <p>
+                      Firebase Auth users will be removed by the backend delete
+                      trigger when their /users node is deleted.
+                    </p>
+                  </>
+                ) : (
+                  <p>
+                    This unused teacher code will be permanently deleted from
+                    /teacher_codes in Firebase.
+                  </p>
+                )}
+                <p className="font-medium text-destructive">
+                  This action cannot be undone.
+                </p>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

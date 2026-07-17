@@ -1,4 +1,5 @@
 import { ref, get, runTransaction, set, remove, update } from "firebase/database";
+import { httpsCallable } from "firebase/functions";
 import { deleteApp, initializeApp } from "firebase/app";
 import {
   createUserWithEmailAndPassword,
@@ -6,7 +7,7 @@ import {
   sendPasswordResetEmail,
   signOut,
 } from "firebase/auth";
-import { auth, database, firebaseConfig } from "./firebase";
+import { auth, database, firebaseConfig, functions } from "./firebase";
 import {
   TeacherUser,
   StudentUser,
@@ -43,10 +44,14 @@ function adminTeacherToListItem(
 ): TeacherListItem {
   return {
     uid: teacher.uid,
-    name: formatDisplayName(teacherUser.teacher_details?.teacher_name) || "Unknown",
+    name:
+      formatDisplayName(teacherUser.teacher_details?.teacher_name) ||
+      formatDisplayName(teacherUser.display_name) ||
+      "Unknown",
     email: teacherUser.sign_in_details?.sign_in_email || "Unknown",
     school: formatDisplayName(teacherUser.teacher_details?.teacher_school) || "Unknown",
-    teacherCode: teacherUser.teacher_code || teacher.teacher_code,
+    teacherCode: teacherUser.teacher_code || teacher.teacher_code || "",
+    status: teacherUser.teacher_status,
     studentCount: countTeacherStudents(teacherUser),
     lastSignIn: teacherUser.sign_in_details?.sign_in_time || "Never",
     classAssignmentsCount: countTeacherClassAssignments(teacherUser),
@@ -158,6 +163,13 @@ function parseTeacherCodeDate(date?: string | null) {
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 }
 
+function getDateAfterDays(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+
+  return date.toISOString().slice(0, 10);
+}
+
 function getLocalDateValue(date = new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -196,10 +208,14 @@ export async function fetchTeachers(): Promise<TeacherListItem[]> {
 
       teachers.push({
         uid,
-        name: formatDisplayName(teacher.teacher_details?.teacher_name) || "Unknown",
+        name:
+          formatDisplayName(teacher.teacher_details?.teacher_name) ||
+          formatDisplayName(teacher.display_name) ||
+          "Unknown",
         email: teacher.sign_in_details?.sign_in_email || "Unknown",
         school: formatDisplayName(teacher.teacher_details?.teacher_school) || "Unknown",
         teacherCode,
+        status: teacher.teacher_status,
         studentCount: studentCounts.byUid.get(uid) || 0,
         lastSignIn: teacher.sign_in_details?.sign_in_time || "Never",
         classAssignmentsCount: countTeacherClassAssignments(teacher),
@@ -360,7 +376,7 @@ export async function fetchDashboardStats(
       const teacher = user as TeacherUser;
       const isScopedTeacher =
         isSuperAdmin ||
-        scopedTeacherCodes.has(teacher.teacher_code) ||
+        scopedTeacherCodes.has(teacher.teacher_code || "") ||
         scopedTeacherUids.has(uid);
 
       if (isScopedTeacher) {
@@ -416,6 +432,12 @@ export async function fetchDashboardStats(
 }
 
 // Teacher Codes management
+const TEACHER_CODE_PATTERN = /^E[A-Z0-9]{3}\d{2,4}$/;
+const TEST_TEACHER_CODE_PATTERN = /^TEST\d{3,4}$/;
+const TEACHER_CODE_REQUIREMENTS =
+  "Teacher code must start with E, followed by 3 uppercase letters or numbers, and end with 2 to 4 numbers.";
+const CLASS_CODE_PENDING_STATUS = "class_code_pending";
+
 export async function fetchClassCodes(): Promise<ClassCode[]> {
   const [users, db] = await Promise.all([fetchAllUsers(), Promise.resolve(getDatabase())]);
   const schoolAdminByTeacherCode = getTeacherSchoolAdminMap(users);
@@ -441,16 +463,12 @@ export async function fetchClassCodes(): Promise<ClassCode[]> {
         ? (users[teacherCode.used_by] as TeacherUser | undefined)
         : undefined;
 
-      if (!teacherCode.school_admin_uid && schoolAdminUid) {
-        update(ref(db, `teacher_codes/${code}`), {
-          school_admin_uid: schoolAdminUid,
-        });
-      }
-
       return {
         code,
         teacher_uid: teacherCode.used_by,
-        teacher_name: formatDisplayName(teacherUser?.teacher_details?.teacher_name),
+        teacher_name:
+          formatDisplayName(teacherUser?.teacher_details?.teacher_name) ||
+          formatDisplayName(teacherUser?.display_name),
         teacher_email: teacherUser?.sign_in_details?.sign_in_email,
         school_admin_uid: schoolAdminUid,
         school_admin_name:
@@ -459,6 +477,7 @@ export async function fetchClassCodes(): Promise<ClassCode[]> {
           formatDisplayName(schoolAdmin?.name),
         expiration_date: parseTeacherCodeDate(teacherCode.expiry_date),
         student_limit: teacherCode.students_limits,
+        valid_days_after_applied: teacherCode.valid_days_after_applied,
         created_at: "",
       };
     });
@@ -468,6 +487,13 @@ export async function fetchClassCodes(): Promise<ClassCode[]> {
 }
 
 export async function createClassCode(classCode: ClassCode): Promise<void> {
+  if (
+    !TEACHER_CODE_PATTERN.test(classCode.code) &&
+    !TEST_TEACHER_CODE_PATTERN.test(classCode.code)
+  ) {
+    throw new Error(TEACHER_CODE_REQUIREMENTS);
+  }
+
   const db = getDatabase();
   const teacherCodeRef = ref(db, `teacher_codes/${classCode.code}`);
   await update(teacherCodeRef, {
@@ -509,6 +535,10 @@ export async function fetchAdminTeachers(adminUid: string): Promise<TeacherListI
       const teacherUser = users[adminTeacher.uid];
 
       if (!teacherUser || teacherUser.is_teacher !== true) {
+        return [];
+      }
+
+      if (teacherUser.teacher_status === "replaced" || teacherUser.is_active === false) {
         return [];
       }
 
@@ -592,6 +622,32 @@ export async function deleteClassCode(code: string): Promise<void> {
   const db = getDatabase();
   const teacherCodeRef = ref(db, `teacher_codes/${code}`);
   await remove(teacherCodeRef);
+}
+
+export async function deleteExpiredTeacherCode(code: string): Promise<{
+  deletedCode: string;
+  deletedTeacherUid?: string | null;
+  deletedParentAccounts: number;
+  deletedChildProfiles: number;
+  detachedSchoolAdmin: boolean;
+}> {
+  if (!functions) {
+    throw new Error("Firebase functions not configured");
+  }
+
+  const deleteCode = httpsCallable<
+    { code: string },
+    {
+      deletedCode: string;
+      deletedTeacherUid?: string | null;
+      deletedParentAccounts: number;
+      deletedChildProfiles: number;
+      detachedSchoolAdmin: boolean;
+    }
+  >(functions, "deleteExpiredTeacherCode");
+  const result = await deleteCode({ code });
+
+  return result.data;
 }
 
 // Validate if a teacher code exists in the users
@@ -739,17 +795,28 @@ export async function transferTeacherAssignment(
     throw new Error("Selected teacher already has an active class");
   }
 
+  const transferredAt = new Date().toISOString();
   const updates: Record<string, unknown> = {
     [`teacher_codes/${teacherCode}/used_by`]: toTeacherUid,
     [`teacher_codes/${teacherCode}/school_admin_uid`]: schoolAdminUid,
-    [`users/${fromTeacherUid}/teacher_code`]: null,
+    [`users/${fromTeacherUid}/teacher_code`]: "",
+    [`users/${fromTeacherUid}/teacher_status`]: CLASS_CODE_PENDING_STATUS,
+    [`users/${fromTeacherUid}/is_active`]: true,
+    [`users/${fromTeacherUid}/assigned_to_class`]: null,
+    [`users/${fromTeacherUid}/replaced_at`]: transferredAt,
+    [`users/${fromTeacherUid}/replaced_by`]: toTeacherUid,
     [`users/${toTeacherUid}/teacher_code`]: teacherCode,
-    [`users/${schoolAdminUid}/teachers/${fromTeacherUid}`]: null,
+    [`users/${toTeacherUid}/teacher_status`]: null,
+    [`users/${schoolAdminUid}/teachers/${fromTeacherUid}`]: removeUndefinedValues({
+      uid: fromTeacherUid,
+      school_admin_uid: schoolAdminUid,
+      assigned_at: transferredAt,
+    } satisfies AdminTeacher),
     [`users/${schoolAdminUid}/teachers/${toTeacherUid}`]: removeUndefinedValues({
       uid: toTeacherUid,
       school_admin_uid: schoolAdminUid,
       teacher_code: teacherCode,
-      assigned_at: new Date().toISOString(),
+      assigned_at: transferredAt,
     } satisfies AdminTeacher),
   };
 
@@ -767,11 +834,112 @@ export async function transferTeacherAssignment(
   await update(ref(db), updates);
 }
 
+export async function deletePendingTeacher(
+  teacherUid: string,
+  requestedByAdmin: Admin
+): Promise<void> {
+  const db = getDatabase();
+  const users = await fetchAllUsers();
+  const teacher = users[teacherUid] as TeacherUser | undefined;
+
+  if (!teacher || teacher.is_teacher !== true) {
+    throw new Error("Teacher account not found");
+  }
+
+  if (teacher.teacher_code) {
+    throw new Error("Only teachers without an active teacher code can be deleted");
+  }
+
+  if (countTeacherStudents(teacher) > 0) {
+    throw new Error("Move students before deleting this teacher");
+  }
+
+  if (
+    requestedByAdmin.role !== "super_admin" &&
+    !requestedByAdmin.roles?.includes("super_admin")
+  ) {
+    const schoolAdmin = users[requestedByAdmin.uid] as Admin | undefined;
+
+    if (!schoolAdmin?.teachers?.[teacherUid]) {
+      throw new Error("You can delete only teachers connected to your school");
+    }
+  }
+
+  const updates: Record<string, unknown> = {
+    [`users/${teacherUid}`]: null,
+  };
+
+  for (const [uid, user] of Object.entries(users)) {
+    const possibleAdmin = user as Partial<Admin>;
+    if (possibleAdmin.role === "school_admin" && possibleAdmin.teachers?.[teacherUid]) {
+      updates[`users/${uid}/teachers/${teacherUid}`] = null;
+    }
+  }
+
+  await update(ref(db), updates);
+}
+
 // Delete a student (and all their data)
 export async function deleteStudent(studentUid: string): Promise<void> {
   const db = getDatabase();
-  const userRef = ref(db, `users/${studentUid}`);
-  await remove(userRef);
+  const users = await fetchAllUsers();
+  const student = users[studentUid] as StudentUser | undefined;
+  const updates: Record<string, unknown> = {
+    [`users/${studentUid}`]: null,
+  };
+
+  if (student?.children) {
+    for (const [childId, child] of Object.entries(student.children)) {
+      const teacherUid =
+        child.teacher_uid ||
+        Object.entries(users).find(
+          ([, user]) =>
+            user.is_teacher === true &&
+            (user as TeacherUser).teacher_code === child.teacher_code
+        )?.[0];
+
+      if (teacherUid) {
+        updates[`users/${teacherUid}/students/${studentUid}/${childId}`] = null;
+      }
+    }
+  }
+
+  await update(ref(db), updates);
+}
+
+export async function deleteStudentChild(
+  studentUid: string,
+  childId: string
+): Promise<void> {
+  const db = getDatabase();
+  const users = await fetchAllUsers();
+  const student = users[studentUid] as StudentUser | undefined;
+  const child = student?.children?.[childId];
+
+  if (!student || !child) {
+    throw new Error("Child profile not found");
+  }
+
+  if (Object.keys(student.children || {}).length <= 1) {
+    throw new Error("Delete the entire student account when only one child profile exists");
+  }
+
+  const teacherUid =
+    child.teacher_uid ||
+    Object.entries(users).find(
+      ([, user]) =>
+        user.is_teacher === true &&
+        (user as TeacherUser).teacher_code === child.teacher_code
+    )?.[0];
+  const updates: Record<string, unknown> = {
+    [`users/${studentUid}/children/${childId}`]: null,
+  };
+
+  if (teacherUid) {
+    updates[`users/${teacherUid}/students/${studentUid}/${childId}`] = null;
+  }
+
+  await update(ref(db), updates);
 }
 
 // Admin management
@@ -890,6 +1058,138 @@ export async function createSchoolAdminAccount(
   }
 }
 
+export async function createTeacherAccountForSchool(
+  schoolAdminUid: string,
+  email: string,
+  password: string,
+  teacherCode: string
+): Promise<void> {
+  const db = getDatabase();
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedCode = teacherCode.trim().toUpperCase();
+
+  if (!TEACHER_CODE_PATTERN.test(normalizedCode) && !TEST_TEACHER_CODE_PATTERN.test(normalizedCode)) {
+    throw new Error(TEACHER_CODE_REQUIREMENTS);
+  }
+
+  const teacherCodeRef = ref(db, `teacher_codes/${normalizedCode}`);
+  const teacherCodeSnapshot = await get(teacherCodeRef);
+
+  if (!teacherCodeSnapshot.exists() || teacherCodeSnapshot.val() === null) {
+    throw new Error("Teacher code not found");
+  }
+
+  const codeData = teacherCodeSnapshot.val() as {
+    expiry_date?: string;
+    students_limits?: number;
+    used_by?: string;
+    school_admin_uid?: string;
+    valid_days_after_applied?: number;
+  };
+
+  if (codeData.used_by) {
+    throw new Error("This teacher code is already used by another teacher");
+  }
+
+  if (codeData.school_admin_uid) {
+    throw new Error("This teacher code is already assigned to another school");
+  }
+
+  const expirationDate =
+    parseTeacherCodeDate(codeData.expiry_date) ||
+    (typeof codeData.valid_days_after_applied === "number"
+      ? getDateAfterDays(codeData.valid_days_after_applied)
+      : undefined);
+  if (expirationDate && expirationDate <= new Date().toISOString().slice(0, 10)) {
+    throw new Error("This teacher code is expired");
+  }
+
+  const provisioningApp = initializeApp(
+    firebaseConfig,
+    `teacher-provisioning-${Date.now()}`
+  );
+  const provisioningAuth = getAuth(provisioningApp);
+
+  try {
+    const result = await createUserWithEmailAndPassword(
+      provisioningAuth,
+      normalizedEmail,
+      password
+    );
+    const teacherUid = result.user.uid;
+    const assignedAt = new Date().toISOString();
+
+    await update(ref(db), {
+      [`users/${teacherUid}`]: {
+        is_teacher: true,
+        teacher_code: normalizedCode,
+        sign_in_details: {
+          device_id: "",
+          device_type: "",
+          sign_in_email: normalizedEmail,
+          is_sign_in: true,
+          sign_in_time: "",
+        },
+      },
+      [`teacher_codes/${normalizedCode}/used_by`]: teacherUid,
+      [`teacher_codes/${normalizedCode}/school_admin_uid`]: schoolAdminUid,
+      ...(expirationDate
+        ? { [`teacher_codes/${normalizedCode}/expiry_date`]: formatTeacherCodeDate(expirationDate) }
+        : {}),
+      [`users/${schoolAdminUid}/teachers/${teacherUid}`]: {
+        uid: teacherUid,
+        school_admin_uid: schoolAdminUid,
+        teacher_code: normalizedCode,
+        assigned_at: assignedAt,
+      },
+    });
+  } finally {
+    await signOut(provisioningAuth).catch(() => undefined);
+    await deleteApp(provisioningApp);
+  }
+}
+
+export async function createPendingReplacementTeacherAccount(
+  teacherName: string,
+  email: string,
+  password: string,
+  createdBy: string
+): Promise<void> {
+  const db = getDatabase();
+  const normalizedName = teacherName.trim();
+  const normalizedEmail = email.trim().toLowerCase();
+  const provisioningApp = initializeApp(
+    firebaseConfig,
+    `replacement-teacher-provisioning-${Date.now()}`
+  );
+  const provisioningAuth = getAuth(provisioningApp);
+
+  try {
+    const result = await createUserWithEmailAndPassword(
+      provisioningAuth,
+      normalizedEmail,
+      password
+    );
+
+    await set(ref(db, `users/${result.user.uid}`), {
+      is_teacher: true,
+      display_name: normalizedName,
+      teacher_status: CLASS_CODE_PENDING_STATUS,
+      created_by: createdBy,
+      sign_in_details: {
+        device_id: "",
+        device_type: "",
+        sign_in_email: normalizedEmail,
+        is_sign_in: true,
+        sign_in_time: "",
+      },
+    });
+  } finally {
+    await signOut(provisioningAuth).catch(() => undefined);
+    await deleteApp(provisioningApp);
+  }
+}
+
 export async function addSchoolAdminRoleToTeacher(
   email: string,
   createdBy: string
@@ -968,6 +1268,16 @@ export async function addSchoolAdminRoleToTeacher(
 }
 
 export async function sendSchoolAdminPasswordResetEmail(
+  email: string
+): Promise<void> {
+  if (!auth) {
+    throw new Error("Firebase auth not configured");
+  }
+
+  await sendPasswordResetEmail(auth, email);
+}
+
+export async function sendTeacherPasswordResetEmail(
   email: string
 ): Promise<void> {
   if (!auth) {

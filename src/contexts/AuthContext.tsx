@@ -132,6 +132,31 @@ function wait(milliseconds: number) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function getAuthErrorMessage(error: unknown) {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code?: unknown }).code)
+      : "";
+
+  if (
+    code === "auth/user-not-found" ||
+    code === "auth/wrong-password" ||
+    code === "auth/invalid-credential"
+  ) {
+    return "The email or password is incorrect, or this account no longer exists.";
+  }
+
+  if (code === "auth/too-many-requests") {
+    return "Too many sign-in attempts. Please try again later or reset your password.";
+  }
+
+  if (code === "auth/network-request-failed") {
+    return "Network error. Please check your internet connection and try again.";
+  }
+
+  return error instanceof Error ? error.message : "Failed to sign in";
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [admin, setAdmin] = useState<Admin | null>(null);
@@ -235,9 +260,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         sign_in_details: signInDetails,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to sign in";
+      const message = getAuthErrorMessage(err);
       setError(message);
-      throw err;
+      throw new Error(message);
     } finally {
       setLoading(false);
     }

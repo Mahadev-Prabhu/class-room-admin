@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getAuth, Auth } from "firebase/auth";
 import { getDatabase, Database } from "firebase/database";
+import { getFunctions, Functions } from "firebase/functions";
 
 // Firebase configuration - Replace with your actual config
 export const firebaseConfig = {
@@ -20,11 +21,13 @@ const isConfigValid = firebaseConfig.apiKey && firebaseConfig.authDomain && fire
 let app: FirebaseApp | undefined;
 let auth: Auth | undefined;
 let database: Database | undefined;
+let functions: Functions | undefined;
 
 if (isConfigValid) {
   app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
   auth = getAuth(app);
   database = getDatabase(app);
+  functions = getFunctions(app, "us-central1");
 }
 
-export { app, auth, database };
+export { app, auth, database, functions };

@@ -39,6 +39,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { TruncatedText } from "@/components/admin/TruncatedText";
 import { ArrowUpDown, Info } from "lucide-react";
@@ -51,6 +52,7 @@ import {
   fetchAdminTeachers,
   fetchClassCodes,
   deleteStudent,
+  deleteStudentChild,
   moveStudentsToTeacher,
   getTeacherByCode,
 } from "@/lib/firebase-service";
@@ -86,8 +88,9 @@ export default function StudentsPage() {
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   // Delete state
-  const [deleteStudentId, setDeleteStudentId] = useState<string | null>(null);
-  const [deleteStudentEmail, setDeleteStudentEmail] = useState<string>("");
+  const [deletingStudent, setDeletingStudent] = useState<StudentListItem | null>(null);
+  const [deleteMode, setDeleteMode] = useState<"child" | "account">("account");
+  const [deleteChildId, setDeleteChildId] = useState("");
 
   // Move state
   const [moveStudent, setMoveStudent] = useState<{
@@ -234,16 +237,28 @@ export default function StudentsPage() {
   };
 
   const handleDeleteStudent = async () => {
-    if (!deleteStudentId) return;
+    if (!deletingStudent) return;
 
     try {
-      await deleteStudent(deleteStudentId);
-      toast.success("Student deleted successfully");
-      setDeleteStudentId(null);
-      setDeleteStudentEmail("");
+      if (deleteMode === "child") {
+        if (!deleteChildId) {
+          toast.error("Please select a child profile");
+          return;
+        }
+
+        await deleteStudentChild(deletingStudent.uid, deleteChildId);
+        toast.success("Child profile deleted successfully");
+      } else {
+        await deleteStudent(deletingStudent.uid);
+        toast.success("Student account deleted successfully");
+      }
+
+      setDeletingStudent(null);
+      setDeleteMode("account");
+      setDeleteChildId("");
       loadData();
-    } catch {
-      toast.error("Failed to delete student");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete student");
     }
   };
 
@@ -304,7 +319,10 @@ export default function StudentsPage() {
       toast.success(
         `${selectedChildIds.length} child${
           selectedChildIds.length === 1 ? "" : "ren"
-        } moved to ${formatDisplayName(teacherData.teacher.teacher_details.teacher_name)}`
+        } moved to ${
+          formatDisplayName(teacherData.teacher.teacher_details?.teacher_name) ||
+          selectedTeacherData.name
+        }`
       );
       closeMoveDialog();
       loadData();
@@ -570,8 +588,15 @@ export default function StudentsPage() {
                               size="sm"
                               className="text-destructive hover:text-destructive"
                               onClick={() => {
-                                setDeleteStudentId(student.uid);
-                                setDeleteStudentEmail(student.parentEmail);
+                                setDeletingStudent(student);
+                                setDeleteMode(
+                                  student.children.length > 1 ? "child" : "account"
+                                );
+                                setDeleteChildId(
+                                  student.children.length > 1
+                                    ? student.children[0].id
+                                    : ""
+                                );
                               }}
                             >
                               Delete
@@ -828,27 +853,110 @@ export default function StudentsPage() {
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog
-        open={!!deleteStudentId}
+        open={!!deletingStudent}
         onOpenChange={() => {
-          setDeleteStudentId(null);
-          setDeleteStudentEmail("");
+          setDeletingStudent(null);
+          setDeleteMode("account");
+          setDeleteChildId("");
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Student Account?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {deleteMode === "child"
+                ? "Delete Child Profile?"
+                : "Delete Entire Student Account?"}
+            </AlertDialogTitle>
             <AlertDialogDescription asChild>
-              <div>
+              <div className="space-y-4">
                 <p>
-                  Are you sure you want to delete the account for{" "}
-                  <strong>{deleteStudentEmail}</strong>? This will permanently remove:
+                  Student account:{" "}
+                  <strong>{deletingStudent?.parentEmail}</strong>
                 </p>
-                <ul className="list-disc list-inside mt-2 space-y-1">
-                  <li>The parent account</li>
-                  <li>All child profiles</li>
-                  <li>All reading progress and rewards</li>
-                </ul>
-                <p className="mt-2 text-destructive font-medium">
+
+                {deletingStudent && deletingStudent.children.length > 1 && (
+                  <Tabs
+                    value={deleteMode}
+                    onValueChange={(value) => {
+                      const mode = value as "child" | "account";
+                      setDeleteMode(mode);
+                      setDeleteChildId(
+                        mode === "child"
+                          ? deleteChildId || deletingStudent.children[0]?.id || ""
+                          : ""
+                      );
+                    }}
+                  >
+                    <TabsList className="grid w-full grid-cols-2">
+                      <TabsTrigger
+                        value="child"
+                        className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                      >
+                        Delete Child Profile
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="account"
+                        className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                      >
+                        Delete Entire Student Account
+                      </TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                )}
+
+                {deleteMode === "child" && deletingStudent ? (
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="deleteChildProfile">Child Profile</Label>
+                      <Select value={deleteChildId} onValueChange={setDeleteChildId}>
+                        <SelectTrigger
+                          id="deleteChildProfile"
+                          className="border-primary bg-background text-foreground hover:bg-primary/5 focus:ring-primary/25 [&_svg]:!text-primary [&_svg]:!opacity-100"
+                        >
+                          <SelectValue placeholder="Select child profile" />
+                        </SelectTrigger>
+                        <SelectContent
+                          position="popper"
+                          side="bottom"
+                          align="start"
+                          sideOffset={6}
+                          className="min-w-[var(--radix-select-trigger-width)]"
+                        >
+                          {deletingStudent.children.map((child) => (
+                            <SelectItem
+                              key={child.id}
+                              value={child.id}
+                              className="data-[state=checked]:bg-primary/10 data-[state=checked]:text-primary data-[state=checked]:font-medium data-[state=checked]:[&_svg]:text-primary"
+                            >
+                              {child.name} ({child.teacherCode || "No teacher code"})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <p>This will permanently delete only the selected child profile.</p>
+                    <ul className="list-inside list-disc space-y-1">
+                      <li>The selected child profile</li>
+                      <li>Reading progress and rewards for that child</li>
+                    </ul>
+                    <p>
+                      The student login and other child profiles will remain.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p>
+                      This will permanently delete the entire student account.
+                    </p>
+                    <ul className="list-inside list-disc space-y-1">
+                      <li>The student login data in the database</li>
+                      <li>All child profiles under this account</li>
+                      <li>All reading progress and rewards</li>
+                    </ul>
+                  </div>
+                )}
+
+                <p className="text-destructive font-medium">
                   This action cannot be undone.
                 </p>
               </div>
@@ -858,9 +966,12 @@ export default function StudentsPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteStudent}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteMode === "child" && !deleteChildId}
+              className="bg-destructive text-white hover:bg-destructive/90"
             >
-              Delete Account
+              {deleteMode === "child"
+                ? "Delete Child Profile"
+                : "Delete Entire Student Account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

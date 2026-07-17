@@ -47,10 +47,13 @@ export interface StudentLink {
 // Teacher user in Firebase
 export interface TeacherUser {
   is_teacher: true;
+  is_active?: boolean;
+  display_name?: string;
   role?: AdminRole;
   roles?: AccountRole[];
-  teacher_code: string;
-  teacher_details: TeacherDetails;
+  teacher_code?: string;
+  teacher_status?: "class_code_pending" | "pending_replacement" | string;
+  teacher_details?: TeacherDetails;
   sign_in_details: SignInDetails;
   assigned_to_class?: Record<string, string>;
   students?: Record<string, Record<string, StudentLink>>;
@@ -114,6 +117,7 @@ export interface ClassCode {
   school_admin_name?: string;
   expiration_date?: string;
   student_limit?: number;
+  valid_days_after_applied?: number;
   class_name?: string;
   created_at: string;
 }
@@ -121,7 +125,7 @@ export interface ClassCode {
 export interface AdminTeacher {
   uid: string;
   school_admin_uid: string;
-  teacher_code: string;
+  teacher_code?: string;
   assigned_at: string;
 }
 
@@ -132,6 +136,7 @@ export interface TeacherListItem {
   email: string;
   school: string;
   teacherCode: string;
+  status?: string;
   studentCount: number;
   lastSignIn: string;
   classAssignmentsCount: number;
