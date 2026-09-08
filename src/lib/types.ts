@@ -49,6 +49,8 @@ export interface TeacherUser {
   is_teacher: true;
   is_active?: boolean;
   display_name?: string;
+  display_school?: string;
+  school_admin_uid?: string;
   role?: AdminRole;
   roles?: AccountRole[];
   teacher_code?: string;
@@ -107,7 +109,7 @@ export interface AdminUser extends Omit<Admin, "uid"> {
 
 export type FirebaseUser = TeacherUser | StudentUser | AdminUser;
 
-// Teacher Code structure
+// Class Code structure
 export interface ClassCode {
   code: string;
   teacher_uid?: string;

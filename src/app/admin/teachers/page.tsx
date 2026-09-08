@@ -39,12 +39,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { TruncatedText } from "@/components/admin/TruncatedText";
-import { ArrowUpDown, Info, Mail, Plus, Share2, Trash2, Users } from "lucide-react";
+import {
+  ArrowRightLeft,
+  ArrowUpDown,
+  Info,
+  Mail,
+  MoreHorizontal,
+  Plus,
+  School,
+  Share2,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
+  fetchAllAdmins,
   fetchAdminTeachers,
   fetchClassCodes,
   fetchTeachers,
@@ -54,10 +72,11 @@ import {
   createTeacherAccountForSchool,
   deletePendingTeacher,
   sendTeacherPasswordResetEmail,
+  setTeacherSchool,
   validateTeacherCode,
   transferTeacherAssignment,
 } from "@/lib/firebase-service";
-import { AdminTeacher, ClassCode, TeacherListItem } from "@/lib/types";
+import { Admin, AdminTeacher, ClassCode, TeacherListItem } from "@/lib/types";
 import { formatUsDate } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -103,12 +122,16 @@ export default function TeachersPage() {
   const { admin } = useAuth();
   const [teachers, setTeachers] = useState<TeacherListItem[]>([]);
   const [filteredTeachers, setFilteredTeachers] = useState<TeacherListItem[]>([]);
+  const [schools, setSchools] = useState<Admin[]>([]);
   const [classCodes, setClassCodes] = useState<ClassCode[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [transferTeacher, setTransferTeacher] = useState<TeacherListItem | null>(null);
   const [targetTeacherUid, setTargetTeacherUid] = useState("");
   const [isTransferring, setIsTransferring] = useState(false);
+  const [setSchoolTeacher, setSetSchoolTeacher] = useState<TeacherListItem | null>(null);
+  const [targetSchoolUid, setTargetSchoolUid] = useState("");
+  const [isSettingSchool, setIsSettingSchool] = useState(false);
   const [deleteTeacher, setDeleteTeacher] = useState<TeacherListItem | null>(null);
   const [isDeletingTeacher, setIsDeletingTeacher] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState<TeacherListItem | null>(null);
@@ -149,21 +172,30 @@ export default function TeachersPage() {
   const [replacementTeacherName, setReplacementTeacherName] = useState("");
   const [replacementTeacherEmail, setReplacementTeacherEmail] = useState("");
   const [replacementTeacherPassword, setReplacementTeacherPassword] = useState("");
+  const [replacementTeacherSchoolUid, setReplacementTeacherSchoolUid] = useState("none");
 
   const loadTeachers = useCallback(async () => {
     if (!admin) return;
 
     try {
       setLoading(true);
-        const [data, codesData] = await Promise.all([
+        const [data, codesData, adminsData] = await Promise.all([
           admin.role === "super_admin"
             ? fetchTeachers()
             : fetchAdminTeachers(admin.uid),
           fetchClassCodes(),
+          admin.role === "super_admin" ? fetchAllAdmins() : Promise.resolve([]),
         ]);
       setTeachers(data);
       setFilteredTeachers(data);
       setClassCodes(codesData);
+      setSchools(
+        adminsData.filter(
+          (item) =>
+            item.role === "school_admin" &&
+            item.sign_in_details?.is_setup_complete
+        )
+      );
     } catch (error) {
       console.error("Failed to load teachers:", error);
       toast.error("Failed to load teachers");
@@ -219,6 +251,16 @@ export default function TeachersPage() {
   const canDeleteTeacher = (teacher: TeacherListItem) =>
     !teacher.teacherCode && teacher.studentCount === 0;
 
+  const canSetSchool = (teacher: TeacherListItem) => {
+    if (admin?.role !== "super_admin" || !teacher.teacherCode) {
+      return false;
+    }
+
+    const code = getTeacherCodeRecord(teacher);
+
+    return Boolean(code?.teacher_uid && !code.school_admin_uid);
+  };
+
   const handleSendTeacherResetLink = async (teacher: TeacherListItem) => {
     if (!canShareTeacherLogin(teacher)) {
       toast.error("Transfer a class before sharing login details");
@@ -251,7 +293,7 @@ export default function TeachersPage() {
     const message = [
       "Your Early Learning Library teacher account is ready.",
       `Email: ${teacher.email}`,
-      `Teacher Code: ${teacher.teacherCode}`,
+      `Class Code: ${teacher.teacherCode}`,
       "Please sign in to the app and complete your teacher profile. Use the reset password link if you need to set or reset your password.",
     ].join("\n");
 
@@ -299,6 +341,31 @@ export default function TeachersPage() {
       );
     } finally {
       setIsDeletingTeacher(false);
+    }
+  };
+
+  const closeSetSchoolDialog = () => {
+    setSetSchoolTeacher(null);
+    setTargetSchoolUid("");
+  };
+
+  const handleSetSchool = async () => {
+    if (!setSchoolTeacher || !targetSchoolUid) {
+      toast.error("Please select a school");
+      return;
+    }
+
+    setIsSettingSchool(true);
+
+    try {
+      await setTeacherSchool(setSchoolTeacher.uid, targetSchoolUid);
+      toast.success("School set successfully");
+      closeSetSchoolDialog();
+      await loadTeachers();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to set school");
+    } finally {
+      setIsSettingSchool(false);
     }
   };
 
@@ -350,7 +417,7 @@ export default function TeachersPage() {
 
     const assignedCode = getAssignedCodeForTeacher(transferTeacher.uid);
     if (!assignedCode) {
-      toast.error("This teacher does not have an assigned teacher code");
+      toast.error("This teacher does not have an assigned class code");
       return;
     }
 
@@ -405,6 +472,7 @@ export default function TeachersPage() {
     setReplacementTeacherName("");
     setReplacementTeacherEmail("");
     setReplacementTeacherPassword("");
+    setReplacementTeacherSchoolUid("none");
   };
 
   const handleCreateReplacementTeacher = async () => {
@@ -440,9 +508,12 @@ export default function TeachersPage() {
         normalizedName,
         normalizedEmail,
         replacementTeacherPassword,
-        admin.uid
+        admin.uid,
+        replacementTeacherSchoolUid === "none"
+          ? undefined
+          : replacementTeacherSchoolUid
       );
-      toast.success("Replacement teacher account created successfully");
+      toast.success("Incoming teacher account created successfully");
       resetReplacementTeacherForm();
       setIsReplacementDialogOpen(false);
       await loadTeachers();
@@ -450,7 +521,7 @@ export default function TeachersPage() {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Failed to create replacement teacher"
+          : "Failed to create incoming teacher"
       );
     } finally {
       setIsCreatingReplacementTeacher(false);
@@ -461,7 +532,7 @@ export default function TeachersPage() {
     const normalizedCode = createTeacherCode.trim().toUpperCase();
 
     if (!normalizedCode) {
-      toast.error("Please enter a teacher code");
+      toast.error("Please enter a class code");
       return;
     }
 
@@ -483,11 +554,11 @@ export default function TeachersPage() {
         setCreateCodeValidation({
           checked: true,
           valid: false,
-          message: "This teacher code is already used by another teacher",
+          message: "This class code is already used by another teacher",
         });
         setCreateTeacherExpirationDate(teacherCode.expiration_date || "");
         setCreateTeacherStudentLimit(teacherCode.student_limit?.toString() || "");
-        toast.error("This teacher code is already used by another teacher");
+        toast.error("This class code is already used by another teacher");
         return;
       }
 
@@ -495,11 +566,11 @@ export default function TeachersPage() {
         setCreateCodeValidation({
           checked: true,
           valid: false,
-          message: "This teacher code is already assigned to another school",
+          message: "This class code is already assigned to another school",
         });
         setCreateTeacherExpirationDate(teacherCode.expiration_date || "");
         setCreateTeacherStudentLimit(teacherCode.student_limit?.toString() || "");
-        toast.error("This teacher code is already assigned to another school");
+        toast.error("This class code is already assigned to another school");
         return;
       }
 
@@ -513,11 +584,11 @@ export default function TeachersPage() {
         setCreateCodeValidation({
           checked: true,
           valid: false,
-          message: "This teacher code is expired",
+          message: "This class code is expired",
         });
         setCreateTeacherExpirationDate(calculatedExpirationDate);
         setCreateTeacherStudentLimit(teacherCode.student_limit?.toString() || "");
-        toast.error("This teacher code is expired");
+        toast.error("This class code is expired");
         return;
       }
 
@@ -526,12 +597,12 @@ export default function TeachersPage() {
       setCreateCodeValidation({
         checked: true,
         valid: true,
-        message: "Valid unused teacher code",
+        message: "Valid unused class code",
         classCode: teacherCode,
       });
-      toast.success("Valid unused teacher code");
+      toast.success("Valid unused class code");
     } catch {
-      toast.error("Failed to validate teacher code");
+      toast.error("Failed to validate class code");
     } finally {
       setIsValidatingCreateCode(false);
     }
@@ -544,7 +615,7 @@ export default function TeachersPage() {
     const normalizedCode = createTeacherCode.trim().toUpperCase();
 
     if (!createCodeValidation.classCode) {
-      toast.error("Please validate the teacher code first");
+      toast.error("Please validate the class code first");
       return;
     }
 
@@ -589,7 +660,7 @@ export default function TeachersPage() {
     const normalizedCode = newCode.trim().toUpperCase();
 
     if (!normalizedCode) {
-      toast.error("Please enter a teacher code");
+      toast.error("Please enter a class code");
       return;
     }
 
@@ -606,15 +677,15 @@ export default function TeachersPage() {
         setCodeValidation({ checked: true, valid: false, message: "Teacher code not found" });
         setExpirationDate("");
         setStudentLimit("");
-        toast.error("Teacher code not found in teacher codes");
+        toast.error("Teacher code not found in class codes");
         return;
       }
 
       if (!teacherCode.teacher_uid) {
-        setCodeValidation({ checked: true, valid: false, message: "This teacher code has not been used by a teacher yet" });
+        setCodeValidation({ checked: true, valid: false, message: "This class code has not been used by a teacher yet" });
         setExpirationDate(teacherCode.expiration_date || "");
         setStudentLimit(teacherCode.student_limit?.toString() || "");
-        toast.error("This teacher code has not been used by a teacher yet");
+        toast.error("This class code has not been used by a teacher yet");
         return;
       }
 
@@ -622,10 +693,10 @@ export default function TeachersPage() {
         teacherCode.school_admin_uid &&
         teacherCode.school_admin_uid !== admin?.uid
       ) {
-        setCodeValidation({ checked: true, valid: false, message: "This teacher code is already assigned to another school" });
+        setCodeValidation({ checked: true, valid: false, message: "This class code is already assigned to another school" });
         setExpirationDate(teacherCode.expiration_date || "");
         setStudentLimit(teacherCode.student_limit?.toString() || "");
-        toast.error("This teacher code is already assigned to another school");
+        toast.error("This class code is already assigned to another school");
         return;
       }
 
@@ -643,7 +714,7 @@ export default function TeachersPage() {
 
       setTeacherName(result.teacher.name);
       setTeacherEmail(result.teacher.email);
-      toast.success("Valid teacher code found!");
+      toast.success("Valid class code found!");
     } catch {
       toast.error("Failed to validate code");
     } finally {
@@ -657,7 +728,7 @@ export default function TeachersPage() {
     const normalizedCode = newCode.trim().toUpperCase();
 
     if (!normalizedCode) {
-      toast.error("Please enter a teacher code");
+      toast.error("Please enter a class code");
       return;
     }
 
@@ -667,12 +738,12 @@ export default function TeachersPage() {
     }
 
     if (teachers.some((teacher) => teacher.teacherCode === normalizedCode)) {
-      toast.error("This teacher code is already assigned to your school");
+      toast.error("This class code is already assigned to your school");
       return;
     }
 
     if (!codeValidation.classCode) {
-      toast.error("Please validate the teacher code first");
+      toast.error("Please validate the class code first");
       return;
     }
 
@@ -707,7 +778,7 @@ export default function TeachersPage() {
       await loadTeachers();
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to add teacher code"
+        error instanceof Error ? error.message : "Failed to add class code"
       );
     } finally {
       setIsSubmittingCode(false);
@@ -810,7 +881,7 @@ export default function TeachersPage() {
             className="shadow-sm"
           >
             <Plus className="mr-2 h-4 w-4" />
-            Create Replacement Teacher
+            Create Incoming Teacher
           </Button>
         ) : (
           <Button
@@ -856,7 +927,7 @@ export default function TeachersPage() {
                 <TableRow>
                   <TableHead className="text-center">Email</TableHead>
                   <TableHead className="text-center">Name</TableHead>
-                  <TableHead className="text-center">Teacher Code</TableHead>
+                  <TableHead className="text-center">Class Code</TableHead>
                   <TableHead className="text-center">Students</TableHead>
                   <TableHead className="text-center">
                     <Button
@@ -942,33 +1013,46 @@ export default function TeachersPage() {
                         </Button>
                       </TableCell>
                       <TableCell className="text-center">
-                        {assignedCode || canDeleteTeacher(teacher) ? (
-                          <div className="flex justify-center gap-2">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+                              aria-label={`Open actions for ${teacher.name}`}
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
                             {admin?.role === "super_admin" && assignedCode && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
-                                onClick={() => setTransferTeacher(teacher)}
-                              >
+                              <DropdownMenuItem onClick={() => setTransferTeacher(teacher)}>
+                                <ArrowRightLeft className="h-4 w-4" />
                                 Transfer Class
-                              </Button>
+                              </DropdownMenuItem>
+                            )}
+                            {canSetSchool(teacher) && (
+                              <DropdownMenuItem onClick={() => setSetSchoolTeacher(teacher)}>
+                                <School className="h-4 w-4" />
+                                Set School
+                              </DropdownMenuItem>
                             )}
                             {canDeleteTeacher(teacher) && (
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                className="h-8 w-8 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-                                aria-label={`Delete ${teacher.name}`}
+                              <DropdownMenuItem
+                                variant="destructive"
                                 onClick={() => setDeleteTeacher(teacher)}
                               >
                                 <Trash2 className="h-4 w-4" />
-                              </Button>
+                                Delete Teacher
+                              </DropdownMenuItem>
                             )}
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
+                            {!assignedCode && !canSetSchool(teacher) && !canDeleteTeacher(teacher) && (
+                              <DropdownMenuItem disabled>
+                                No actions available
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   );
@@ -1049,7 +1133,7 @@ export default function TeachersPage() {
                   </div>
                   <div className="space-y-1">
                     <div className="text-xs font-medium uppercase text-muted-foreground">
-                      Teacher Code
+                      Class Code
                     </div>
                     <Badge variant="secondary" className="w-fit font-mono">
                       {selectedTeacher.teacherCode || "-"}
@@ -1100,7 +1184,7 @@ export default function TeachersPage() {
                     <div>
                       <div className="text-sm font-medium">Teacher login details</div>
                       <div className="text-xs text-muted-foreground">
-                        Send a reset link or share the email and teacher code.
+                        Send a reset link or share the email and class code.
                       </div>
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row">
@@ -1153,7 +1237,7 @@ export default function TeachersPage() {
           <DialogHeader>
             <DialogTitle>Add Teacher</DialogTitle>
             <DialogDescription>
-              Add an existing teacher by code or create a new teacher account.
+              Add an enrolled teacher by code or create a new teacher account.
             </DialogDescription>
           </DialogHeader>
           <Tabs
@@ -1168,7 +1252,7 @@ export default function TeachersPage() {
                 value="existing"
                 className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
               >
-                Existing Teacher
+                Enrolled Teacher
               </TabsTrigger>
               <TabsTrigger
                 value="new"
@@ -1181,7 +1265,7 @@ export default function TeachersPage() {
             <TabsContent value="existing">
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
-                  <Label htmlFor="teacherCode">Teacher Code *</Label>
+                  <Label htmlFor="teacherCode">Class Code *</Label>
                   <div className="flex gap-2">
                     <Input
                       id="teacherCode"
@@ -1213,7 +1297,7 @@ export default function TeachersPage() {
                       }`}
                     >
                       {codeValidation.valid
-                        ? "Valid teacher code found"
+                        ? "Valid class code found"
                         : codeValidation.message || "Teacher account not found"}
                     </p>
                   )}
@@ -1262,7 +1346,7 @@ export default function TeachersPage() {
                   onClick={handleAddTeacherCode}
                   disabled={isSubmittingCode || isValidatingCode || !codeValidation.classCode}
                 >
-                  {isSubmittingCode ? "Adding..." : "Add Teacher Code"}
+                  {isSubmittingCode ? "Adding..." : "Add Class Code"}
                 </Button>
               </DialogFooter>
             </TabsContent>
@@ -1270,7 +1354,7 @@ export default function TeachersPage() {
             <TabsContent value="new">
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
-                  <Label htmlFor="createTeacherCode">Teacher Code *</Label>
+                  <Label htmlFor="createTeacherCode">Class Code *</Label>
                   <div className="flex gap-2">
                     <Input
                       id="createTeacherCode"
@@ -1387,9 +1471,9 @@ export default function TeachersPage() {
       >
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>Create Replacement Teacher</DialogTitle>
+            <DialogTitle>Create Incoming Teacher</DialogTitle>
             <DialogDescription>
-              Create a pending replacement teacher account without a teacher
+              Create an incoming teacher account without a class
               code. Use Transfer Class later to transfer an existing class code
               and students to this teacher.
             </DialogDescription>
@@ -1430,6 +1514,29 @@ export default function TeachersPage() {
                 disabled={isCreatingReplacementTeacher}
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="replacementTeacherSchool">School (Optional)</Label>
+              <Select
+                value={replacementTeacherSchoolUid}
+                onValueChange={setReplacementTeacherSchoolUid}
+                disabled={isCreatingReplacementTeacher}
+              >
+                <SelectTrigger id="replacementTeacherSchool">
+                  <SelectValue placeholder="Select school" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No school selected</SelectItem>
+                  {schools.map((school) => (
+                    <SelectItem key={school.uid} value={school.uid}>
+                      {school.school_details?.school_name ||
+                        school.sign_in_details?.name ||
+                        school.name ||
+                        school.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -1445,7 +1552,7 @@ export default function TeachersPage() {
             >
               {isCreatingReplacementTeacher
                 ? "Creating..."
-                : "Create Replacement Teacher"}
+                : "Create Incoming Teacher"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1463,13 +1570,13 @@ export default function TeachersPage() {
           <DialogHeader>
             <DialogTitle>Transfer Class</DialogTitle>
             <DialogDescription>
-              Transfer {transferTeacher?.name}&apos;s teacher code and students to
-              a replacement teacher.
+              Transfer {transferTeacher?.name}&apos;s class code and students to
+              an incoming teacher.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Current Teacher Code</Label>
+              <Label>Current Class Code</Label>
               <div>
                 <Badge variant="secondary" className="font-mono">
                   {transferTeacher
@@ -1480,7 +1587,7 @@ export default function TeachersPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="targetTeacher">Replacement Teacher</Label>
+              <Label htmlFor="targetTeacher">Incoming Teacher</Label>
               <Select value={targetTeacherUid} onValueChange={setTargetTeacherUid}>
                 <SelectTrigger id="targetTeacher">
                   <SelectValue placeholder="Select a teacher" />
@@ -1495,7 +1602,7 @@ export default function TeachersPage() {
               </Select>
               {getTransferTargets().length === 0 && (
                 <p className="text-sm text-muted-foreground">
-                  No eligible replacement teachers found. Create a teacher with
+                  No eligible incoming teachers found. Create a teacher with
                   Class Code Pending status first.
                 </p>
               )}
@@ -1510,6 +1617,74 @@ export default function TeachersPage() {
               disabled={isTransferring || !targetTeacherUid}
             >
               {isTransferring ? "Transferring..." : "Transfer Class"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!setSchoolTeacher}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeSetSchoolDialog();
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Set Teacher School</DialogTitle>
+            <DialogDescription>
+              Select the school for {setSchoolTeacher?.name}. This will connect
+              the class code to the school and update the teacher&apos;s school
+              name.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Class Code</Label>
+              <div>
+                <Badge variant="secondary" className="font-mono">
+                  {setSchoolTeacher?.teacherCode || "-"}
+                </Badge>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="targetSchool">School</Label>
+              <Select value={targetSchoolUid} onValueChange={setTargetSchoolUid}>
+                <SelectTrigger id="targetSchool">
+                  <SelectValue placeholder="Select school" />
+                </SelectTrigger>
+                <SelectContent>
+                  {schools.map((school) => (
+                    <SelectItem key={school.uid} value={school.uid}>
+                      {school.school_details?.school_name ||
+                        school.sign_in_details?.name ||
+                        school.name ||
+                        school.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {schools.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No completed school accounts found.
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={closeSetSchoolDialog}
+              disabled={isSettingSchool}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSetSchool}
+              disabled={isSettingSchool || !targetSchoolUid}
+            >
+              {isSettingSchool ? "Setting..." : "Set School"}
             </Button>
           </DialogFooter>
         </DialogContent>

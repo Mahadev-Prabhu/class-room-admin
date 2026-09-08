@@ -6,7 +6,7 @@ import { Separator } from "@/components/ui/separator";
 
 const pageTitles: Record<string, string> = {
   "/admin/dashboard": "Dashboard",
-  "/admin/class-codes": "Teacher Codes",
+  "/admin/class-codes": "Class Codes",
   "/admin/teachers": "Teachers",
   "/admin/students": "Students",
   "/admin/settings": "Settings",

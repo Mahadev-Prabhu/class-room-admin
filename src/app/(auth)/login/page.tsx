@@ -39,7 +39,6 @@ export default function LoginPage() {
       toast.success("Signed in successfully!");
       router.push("/admin/dashboard");
     } catch (err) {
-      console.error(err);
       toast.error(err instanceof Error ? err.message : "Failed to sign in");
     } finally {
       setIsLoading(false);

@@ -1,0 +1,25 @@
+Section,Item,Required?,Who Provides It?,Where It Is Used,Notes
+Purpose,Use this checklist before creating a school account,Yes,Super Admin,Schools page,Collect these details before creating the school login.
+Before Creating Account,Confirm school or center name,Yes,School/Center,Create School Account,Use the official display name that should appear in the portal.
+Before Creating Account,Confirm admin contact name,Yes,School/Center,Create School Account,This is the person who will log in as School Admin.
+Before Creating Account,Confirm admin email address,Yes,School/Center,Create School Account,This email becomes the School Admin login email.
+Before Creating Account,Decide initial password,Yes,Super Admin,Create School Account,Share securely with the school; they can reset password later.
+Before Creating Account,Confirm whether contact is also an enrolled teacher,No,School/Center,Create School Account,If yes, use enrolled teacher account option only if that teacher is not already connected to another school.
+First-Time School Setup,School/Center Name,Yes,School Admin,Setup page,School Admin enters this during first login.
+First-Time School Setup,Country,Yes,School Admin,Setup page,Used for location and phone format.
+First-Time School Setup,State/Region,Yes,School Admin,Setup page,State list depends on selected country.
+First-Time School Setup,Street Address 1,Yes,School Admin,Setup page,Main school address.
+First-Time School Setup,Street Address 2,No,School Admin,Setup page,Suite, floor, area, or optional address detail.
+First-Time School Setup,Zip/Postal Code,Yes,School Admin,Setup page,Postal code for the school/center.
+First-Time School Setup,Phone Number,Yes,School Admin,Setup page,Phone format follows selected country.
+After Account Creation,Share login URL,Yes,Super Admin,School communication,Production login URL: https://class-room-admin.vercel.app/login
+After Account Creation,Share login email,Yes,Super Admin,School communication,Use the School Admin email entered during account creation.
+After Account Creation,Share initial password securely,Yes,Super Admin,School communication,Do not share in public group chats.
+After Account Creation,Ask school to complete setup on first login,Yes,Super Admin,Setup page,School Admin must complete school details before using the portal.
+After Account Creation,Explain reset password option,No,Super Admin,Login page,School can use reset password link if they forget the password.
+Validation,Do not reuse an email already used by another active role,Yes,Super Admin,Create School Account,Check before creating or assigning roles.
+Validation,Do not convert teacher to school admin if teacher belongs to another school,Yes,Super Admin,Use Enrolled Teacher Account,Prevents cross-school data mix-up.
+Validation,School Admin account should be active,Yes,Super Admin,Schools page,Inactive school admins cannot access portal features.
+Testing,School Admin can sign in with provided email/password,Yes,School Admin,Login page,Test before sharing as completed.
+Testing,School Admin sees setup page on first login,Yes,School Admin,Setup page,Only first-time/incomplete setup accounts should see this.
+Testing,School details save successfully,Yes,School Admin,Setup page,After save, School Admin should land on dashboard.

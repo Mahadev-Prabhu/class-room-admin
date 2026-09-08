@@ -42,7 +42,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { TruncatedText } from "@/components/admin/TruncatedText";
-import { ArrowUpDown, Pencil, Trash2 } from "lucide-react";
+import { ArrowUpDown, Loader2, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   fetchClassCodes,
@@ -96,7 +96,8 @@ const canDirectDeleteClassCode = (classCode: ClassCode) =>
   !classCode.teacher_uid && !classCode.school_admin_uid;
 
 const canDeleteClassCode = (classCode: ClassCode) =>
-  getClassCodeStatus(classCode) === "Expired" || canDirectDeleteClassCode(classCode);
+  ["Expired", "Teacher Claimed"].includes(getClassCodeStatus(classCode)) ||
+  canDirectDeleteClassCode(classCode);
 
 const getStatusVariant = (status: string) => {
   if (status === "Expired") {
@@ -197,7 +198,7 @@ export default function ClassCodesPage() {
       setTeachers(teachersData);
     } catch (error) {
       console.error("Failed to load data:", error);
-      toast.error("Failed to load teacher codes");
+      toast.error("Failed to load class codes");
     } finally {
       setLoading(false);
     }
@@ -216,7 +217,7 @@ export default function ClassCodesPage() {
 
   const handleValidateCode = async () => {
     if (!newCode.trim()) {
-      toast.error("Please enter a teacher code");
+      toast.error("Please enter a class code");
       return;
     }
 
@@ -234,15 +235,15 @@ export default function ClassCodesPage() {
         setCodeValidation({ checked: true, valid: false, message: "Teacher code not found" });
         setExpirationDate("");
         setStudentLimit("");
-        toast.error("Teacher code not found in teacher codes");
+        toast.error("Teacher code not found in class codes");
         return;
       }
 
       if (!teacherCode.teacher_uid) {
-        setCodeValidation({ checked: true, valid: false, message: "This teacher code has not been used by a teacher yet" });
+        setCodeValidation({ checked: true, valid: false, message: "This class code has not been used by a teacher yet" });
         setExpirationDate(teacherCode.expiration_date || "");
         setStudentLimit(teacherCode.student_limit?.toString() || "");
-        toast.error("This teacher code has not been used by a teacher yet");
+        toast.error("This class code has not been used by a teacher yet");
         return;
       }
 
@@ -250,10 +251,10 @@ export default function ClassCodesPage() {
         teacherCode.school_admin_uid &&
         teacherCode.school_admin_uid !== admin?.uid
       ) {
-        setCodeValidation({ checked: true, valid: false, message: "This teacher code is already assigned to another school" });
+        setCodeValidation({ checked: true, valid: false, message: "This class code is already assigned to another school" });
         setExpirationDate(teacherCode.expiration_date || "");
         setStudentLimit(teacherCode.student_limit?.toString() || "");
-        toast.error("This teacher code is already assigned to another school");
+        toast.error("This class code is already assigned to another school");
         return;
       }
 
@@ -271,7 +272,7 @@ export default function ClassCodesPage() {
 
       setTeacherName(result.teacher.name);
       setTeacherEmail(result.teacher.email);
-      toast.success("Valid teacher code found!");
+      toast.success("Valid class code found!");
     } catch {
       toast.error("Failed to validate code");
     } finally {
@@ -283,7 +284,7 @@ export default function ClassCodesPage() {
     const normalizedCode = newCode.trim().toUpperCase();
 
     if (!normalizedCode) {
-      toast.error("Please enter a teacher code");
+      toast.error("Please enter a class code");
       return;
     }
 
@@ -293,12 +294,12 @@ export default function ClassCodesPage() {
     }
 
     if (classCodes.some((classCode) => classCode.code === normalizedCode)) {
-      toast.error("This teacher code already exists");
+      toast.error("This class code already exists");
       return;
     }
 
     if (admin?.role !== "super_admin" && !codeValidation.classCode) {
-      toast.error("Please validate the teacher code first");
+      toast.error("Please validate the class code first");
       return;
     }
 
@@ -373,7 +374,7 @@ export default function ClassCodesPage() {
       loadData();
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to add teacher code"
+        error instanceof Error ? error.message : "Failed to add class code"
       );
     } finally {
       setIsSubmitting(false);
@@ -413,7 +414,7 @@ export default function ClassCodesPage() {
       setEditStudentLimit("");
       loadData();
     } catch {
-      toast.error("Failed to update teacher code");
+      toast.error("Failed to update class code");
     } finally {
       setIsUpdating(false);
     }
@@ -436,10 +437,10 @@ export default function ClassCodesPage() {
     try {
       const status = getClassCodeStatus(deletingClassCode);
 
-      if (status === "Expired") {
+      if (status === "Expired" || status === "Teacher Claimed") {
         const summary = await deleteExpiredTeacherCode(deletingClassCode.code);
         toast.success(
-          `Teacher code deleted. Removed ${summary.deletedChildProfiles} child profile${
+          `Class code deleted. Removed ${summary.deletedChildProfiles} child profile${
             summary.deletedChildProfiles === 1 ? "" : "s"
           } and ${summary.deletedParentAccounts} parent account${
             summary.deletedParentAccounts === 1 ? "" : "s"
@@ -447,7 +448,7 @@ export default function ClassCodesPage() {
         );
       } else {
         if (!canDirectDeleteClassCode(deletingClassCode)) {
-          toast.error("Only expired codes or unused codes can be deleted");
+          toast.error("Only expired, teacher claimed, or unused codes can be deleted");
           return;
         }
 
@@ -458,8 +459,13 @@ export default function ClassCodesPage() {
       setDeletingClassCode(null);
       await loadData();
     } catch (error) {
+      console.error("Failed to delete class code", error);
+
+      const firebaseError = error as { code?: string; message?: string };
       toast.error(
-        error instanceof Error ? error.message : "Failed to delete teacher code"
+        firebaseError.message ||
+          firebaseError.code ||
+          "Failed to delete class code"
       );
     } finally {
       setIsDeleting(false);
@@ -559,9 +565,9 @@ export default function ClassCodesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Teacher Codes</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Class Codes</h1>
           <p className="text-muted-foreground">
-            Manage and assign teacher codes to teachers
+            Manage and assign class codes to teachers
           </p>
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
@@ -580,23 +586,23 @@ export default function ClassCodesPage() {
                 <line x1="12" x2="12" y1="5" y2="19" />
                 <line x1="5" x2="19" y1="12" y2="12" />
               </svg>
-              {admin?.role === "super_admin" ? "Create Teacher Code" : "Add Teacher Code"}
+              {admin?.role === "super_admin" ? "Create Class Code" : "Add Class Code"}
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
               <DialogTitle>
-                {admin?.role === "super_admin" ? "Create Teacher Code" : "Add Teacher Code"}
+                {admin?.role === "super_admin" ? "Create Class Code" : "Add Class Code"}
               </DialogTitle>
               <DialogDescription>
                 {admin?.role === "super_admin"
-                  ? "Create a new teacher code in the system"
-                  : "Enter a teacher code to assign it to a teacher"}
+                  ? "Create a new class code in the system"
+                  : "Enter a class code to assign it to a teacher"}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="code">Teacher Code *</Label>
+                <Label htmlFor="code">Class Code *</Label>
                 <div className={admin?.role === "super_admin" ? "" : "flex gap-2"}>
                   <Input
                     id="code"
@@ -640,7 +646,7 @@ export default function ClassCodesPage() {
                     }`}
                   >
                     {codeValidation.valid
-                      ? "✓ Valid teacher code found"
+                      ? "✓ Valid class code found"
                       : codeValidation.message || "Teacher account not found"}
                   </p>
                 )}
@@ -718,8 +724,8 @@ export default function ClassCodesPage() {
                     ? "Creating..."
                     : "Adding..."
                   : admin?.role === "super_admin"
-                  ? "Create Teacher Code"
-                  : "Add Teacher Code"}
+                  ? "Create Class Code"
+                  : "Add Class Code"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -742,20 +748,20 @@ export default function ClassCodesPage() {
                       <SelectValue placeholder="Code type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Teacher Codes</SelectItem>
-                      <SelectItem value="test">Test Teacher Codes</SelectItem>
-                      <SelectItem value="live">Live Teacher Codes</SelectItem>
+                      <SelectItem value="all">All Class Codes</SelectItem>
+                      <SelectItem value="test">Test Class Codes</SelectItem>
+                      <SelectItem value="live">Live Class Codes</SelectItem>
                     </SelectContent>
                   </Select>
                 </CardTitle>
                 <CardDescription>
-                  {filteredClassCodes.length} teacher code
+                  {filteredClassCodes.length} class code
                   {filteredClassCodes.length !== 1 ? "s" : ""} found
                 </CardDescription>
               </div>
               <div className="flex flex-col gap-2 md:flex-row md:items-center">
                 <Input
-                  placeholder="Search teacher codes..."
+                  placeholder="Search class codes..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full md:w-[280px]"
@@ -772,8 +778,8 @@ export default function ClassCodesPage() {
               <div className="text-center py-8 text-muted-foreground">
                 <p>
                   {searchQuery.trim() || codeTypeFilter !== "all"
-                    ? "No teacher codes match your filters."
-                    : "No teacher codes found."}
+                    ? "No class codes match your filters."
+                    : "No class codes found."}
                 </p>
               </div>
             ) : (
@@ -863,7 +869,7 @@ export default function ClassCodesPage() {
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8"
-                              aria-label={`Edit teacher code ${code.code}`}
+                              aria-label={`Edit class code ${code.code}`}
                               onClick={() => openEditDialog(code)}
                             >
                               <Pencil className="h-4 w-4" />
@@ -872,7 +878,7 @@ export default function ClassCodesPage() {
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8 text-destructive hover:text-destructive"
-                              aria-label={`Delete teacher code ${code.code}`}
+                              aria-label={`Delete class code ${code.code}`}
                               disabled={!canDeleteClassCode(code)}
                               onClick={() => openDeleteDialog(code)}
                             >
@@ -893,14 +899,14 @@ export default function ClassCodesPage() {
           <CardHeader>
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
-                <CardTitle>All Teacher Codes</CardTitle>
+                <CardTitle>All Class Codes</CardTitle>
                 <CardDescription>
-                  {filteredClassCodes.length} teacher code
+                  {filteredClassCodes.length} class code
                   {filteredClassCodes.length !== 1 ? "s" : ""} found
                 </CardDescription>
               </div>
               <Input
-                placeholder="Search teacher codes..."
+                placeholder="Search class codes..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full md:w-[280px]"
@@ -916,12 +922,12 @@ export default function ClassCodesPage() {
               <div className="text-center py-8 text-muted-foreground">
                 <p>
                   {searchQuery.trim()
-                    ? "No teacher codes match your search."
-                    : "No teacher codes found."}
+                    ? "No class codes match your search."
+                    : "No class codes found."}
                 </p>
                 {!searchQuery.trim() && (
                   <p className="text-sm">
-                    Click &quot;Add Teacher Code&quot; to get started.
+                    Click &quot;Add Class Code&quot; to get started.
                   </p>
                 )}
               </div>
@@ -999,7 +1005,7 @@ export default function ClassCodesPage() {
       >
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Edit Teacher Code</DialogTitle>
+            <DialogTitle>Edit Class Code</DialogTitle>
             <DialogDescription>
               Update expiration date and student limit for {editingClassCode?.code}.
             </DialogDescription>
@@ -1044,6 +1050,10 @@ export default function ClassCodesPage() {
       <AlertDialog
         open={!!deletingClassCode}
         onOpenChange={(open) => {
+          if (isDeleting) {
+            return;
+          }
+
           if (!open) {
             setDeletingClassCode(null);
           }
@@ -1052,23 +1062,24 @@ export default function ClassCodesPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Delete teacher code {deletingClassCode?.code}?
+              Delete class code {deletingClassCode?.code}?
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 {deletingClassCode &&
-                getClassCodeStatus(deletingClassCode) === "Expired" ? (
+                ["Expired", "Teacher Claimed"].includes(
+                  getClassCodeStatus(deletingClassCode)
+                ) ? (
                   <>
                     <p>
-                      This expired teacher code will be deleted using backend
-                      cleanup.
+                      This class code will be deleted using backend cleanup.
                     </p>
                     <div>
                       <p>This can permanently delete:</p>
                       <ul className="mt-2 list-disc space-y-1 pl-5">
                         <li>The teacher account using this code</li>
                         <li>Teacher-student links for this code</li>
-                        <li>Child profiles connected to this teacher code</li>
+                        <li>Child profiles connected to this class code</li>
                         <li>
                           Parent accounts only when all their child profiles are
                           connected to this code
@@ -1082,13 +1093,19 @@ export default function ClassCodesPage() {
                   </>
                 ) : (
                   <p>
-                    This unused teacher code will be permanently deleted from
+                    This unused class code will be permanently deleted from
                     /teacher_codes in Firebase.
                   </p>
                 )}
                 <p className="font-medium text-destructive">
                   This action cannot be undone.
                 </p>
+                {isDeleting && (
+                  <div className="flex items-center gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm font-medium text-destructive">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Deleting class code and cleaning related records...
+                  </div>
+                )}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1097,9 +1114,16 @@ export default function ClassCodesPage() {
             <AlertDialogAction
               onClick={handleDeleteClassCode}
               disabled={isDeleting}
-              className="bg-destructive text-white hover:bg-destructive/90"
+              className="inline-flex items-center bg-destructive text-white hover:bg-destructive/90"
             >
-              {isDeleting ? "Deleting..." : "Delete"}
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

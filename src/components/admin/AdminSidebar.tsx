@@ -48,7 +48,7 @@ const mainNavItems = [
     ),
   },
   {
-    title: "Teacher Codes",
+    title: "Class Codes",
     href: "/admin/class-codes",
     icon: (
       <svg

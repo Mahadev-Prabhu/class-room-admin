@@ -598,7 +598,7 @@ export default function SchoolsPage() {
                 onClick={() => setAccountMode("existing_teacher")}
                 disabled={isCreatingSchool}
               >
-                Existing Teacher
+                Enrolled Teacher
               </Button>
             </div>
             {accountMode === "new" && (
@@ -656,7 +656,7 @@ export default function SchoolsPage() {
             ) : (
               <p className="text-sm text-muted-foreground">
                 The teacher will use their existing email and password. Their
-                teacher code, students, children, and mobile app access will
+                class code, students, children, and mobile app access will
                 remain unchanged.
               </p>
             )}

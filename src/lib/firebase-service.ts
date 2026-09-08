@@ -49,7 +49,10 @@ function adminTeacherToListItem(
       formatDisplayName(teacherUser.display_name) ||
       "Unknown",
     email: teacherUser.sign_in_details?.sign_in_email || "Unknown",
-    school: formatDisplayName(teacherUser.teacher_details?.teacher_school) || "Unknown",
+    school:
+      formatDisplayName(teacherUser.teacher_details?.teacher_school) ||
+      formatDisplayName(teacherUser.display_school) ||
+      "Unknown",
     teacherCode: teacherUser.teacher_code || teacher.teacher_code || "",
     status: teacherUser.teacher_status,
     studentCount: countTeacherStudents(teacherUser),
@@ -213,7 +216,10 @@ export async function fetchTeachers(): Promise<TeacherListItem[]> {
           formatDisplayName(teacher.display_name) ||
           "Unknown",
         email: teacher.sign_in_details?.sign_in_email || "Unknown",
-        school: formatDisplayName(teacher.teacher_details?.teacher_school) || "Unknown",
+        school:
+          formatDisplayName(teacher.teacher_details?.teacher_school) ||
+          formatDisplayName(teacher.display_school) ||
+          "Unknown",
         teacherCode,
         status: teacher.teacher_status,
         studentCount: studentCounts.byUid.get(uid) || 0,
@@ -317,7 +323,7 @@ export async function fetchAdminStudents(adminUid: string): Promise<StudentListI
   return fetchStudents({ teacherCodes, teacherUids });
 }
 
-// Fetch students by teacher code
+// Fetch students by class code
 export async function fetchStudentsByTeacherCode(teacherCode: string): Promise<StudentListItem[]> {
   const allStudents = await fetchStudents();
   
@@ -431,7 +437,7 @@ export async function fetchDashboardStats(
   };
 }
 
-// Teacher Codes management
+// Class Codes management
 const TEACHER_CODE_PATTERN = /^E[A-Z0-9]{3}\d{2,4}$/;
 const TEST_TEACHER_CODE_PATTERN = /^TEST\d{3,4}$/;
 const TEACHER_CODE_REQUIREMENTS =
@@ -610,12 +616,79 @@ export async function assignTeacherCodeToSchool(
   });
 
   if (assignedToAnotherSchool) {
-    throw new Error("This teacher code is already assigned to another school");
+    throw new Error("This class code is already assigned to another school");
   }
 
   if (!result.committed) {
     throw new Error("Teacher code not found");
   }
+}
+
+export async function setTeacherSchool(
+  teacherUid: string,
+  schoolAdminUid: string
+): Promise<void> {
+  const db = getDatabase();
+  const users = await fetchAllUsers();
+  const teacher = users[teacherUid] as TeacherUser | undefined;
+  const schoolAdmin = users[schoolAdminUid] as Admin | undefined;
+
+  if (!teacher || teacher.is_teacher !== true || !teacher.teacher_code) {
+    throw new Error("Teacher must have a class code before setting school");
+  }
+
+  if (!schoolAdmin || schoolAdmin.role !== "school_admin") {
+    throw new Error("School account not found");
+  }
+
+  const teacherCodeRef = ref(db, `teacher_codes/${teacher.teacher_code}`);
+  let assignedToAnotherSchool = false;
+
+  const result = await runTransaction(teacherCodeRef, (teacherCode) => {
+    if (!teacherCode || typeof teacherCode !== "object") {
+      return;
+    }
+
+    if (
+      teacherCode.school_admin_uid &&
+      teacherCode.school_admin_uid !== schoolAdminUid
+    ) {
+      assignedToAnotherSchool = true;
+      return;
+    }
+
+    return {
+      ...teacherCode,
+      school_admin_uid: schoolAdminUid,
+    };
+  });
+
+  if (assignedToAnotherSchool) {
+    throw new Error("This class code is already assigned to another school");
+  }
+
+  if (!result.committed) {
+    throw new Error("Class code not found");
+  }
+
+  const schoolName =
+    schoolAdmin.school_details?.school_name ||
+    schoolAdmin.sign_in_details?.name ||
+    schoolAdmin.name ||
+    "";
+  const assignedAt = new Date().toISOString();
+
+  await update(ref(db), {
+    [`users/${schoolAdminUid}/teachers/${teacherUid}`]: {
+      uid: teacherUid,
+      school_admin_uid: schoolAdminUid,
+      teacher_code: teacher.teacher_code,
+      assigned_at: assignedAt,
+    },
+    [`users/${teacherUid}/display_school`]: schoolName,
+    [`users/${teacherUid}/school_admin_uid`]: schoolAdminUid,
+    [`users/${teacherUid}/teacher_details/teacher_school`]: schoolName,
+  });
 }
 
 export async function deleteClassCode(code: string): Promise<void> {
@@ -650,7 +723,7 @@ export async function deleteExpiredTeacherCode(code: string): Promise<{
   return result.data;
 }
 
-// Validate if a teacher code exists in the users
+// Validate if a class code exists in the users
 export async function validateTeacherCode(code: string): Promise<{ valid: boolean; teacher?: TeacherListItem }> {
   const teachers = await fetchTeachers();
   const teacher = teachers.find((t) => t.teacherCode === code);
@@ -703,7 +776,7 @@ export async function moveStudentsToTeacher(
     targetCode.expiration_date &&
     targetCode.expiration_date <= getLocalDateValue()
   ) {
-    throw new Error("Selected teacher code is expired");
+    throw new Error("Selected class code is expired");
   }
 
   if (uniqueChildIds.length === 0) {
@@ -802,7 +875,6 @@ export async function transferTeacherAssignment(
     [`users/${fromTeacherUid}/teacher_code`]: "",
     [`users/${fromTeacherUid}/teacher_status`]: CLASS_CODE_PENDING_STATUS,
     [`users/${fromTeacherUid}/is_active`]: true,
-    [`users/${fromTeacherUid}/assigned_to_class`]: null,
     [`users/${fromTeacherUid}/replaced_at`]: transferredAt,
     [`users/${fromTeacherUid}/replaced_by`]: toTeacherUid,
     [`users/${toTeacherUid}/teacher_code`]: teacherCode,
@@ -847,7 +919,7 @@ export async function deletePendingTeacher(
   }
 
   if (teacher.teacher_code) {
-    throw new Error("Only teachers without an active teacher code can be deleted");
+    throw new Error("Only teachers without an active class code can be deleted");
   }
 
   if (countTeacherStudents(teacher) > 0) {
@@ -1021,6 +1093,8 @@ export async function createSchoolAdminAccount(
   createdBy: string
 ): Promise<void> {
   const db = getDatabase();
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedName = name.trim();
   const provisioningApp = initializeApp(
     firebaseConfig,
     `school-admin-provisioning-${Date.now()}`
@@ -1030,7 +1104,7 @@ export async function createSchoolAdminAccount(
   try {
     const result = await createUserWithEmailAndPassword(
       provisioningAuth,
-      email,
+      normalizedEmail,
       password
     );
     const createdAt = new Date().toISOString();
@@ -1043,12 +1117,12 @@ export async function createSchoolAdminAccount(
         created_at: createdAt,
         device_id: "",
         device_type: "web",
-        email,
+        email: normalizedEmail,
         is_active: true,
         is_setup_complete: false,
         is_sign_in: false,
-        name,
-        sign_in_email: email,
+        name: normalizedName,
+        sign_in_email: normalizedEmail,
         sign_in_time: "",
       },
     });
@@ -1088,11 +1162,11 @@ export async function createTeacherAccountForSchool(
   };
 
   if (codeData.used_by) {
-    throw new Error("This teacher code is already used by another teacher");
+    throw new Error("This class code is already used by another teacher");
   }
 
   if (codeData.school_admin_uid) {
-    throw new Error("This teacher code is already assigned to another school");
+    throw new Error("This class code is already assigned to another school");
   }
 
   const expirationDate =
@@ -1101,7 +1175,7 @@ export async function createTeacherAccountForSchool(
       ? getDateAfterDays(codeData.valid_days_after_applied)
       : undefined);
   if (expirationDate && expirationDate <= new Date().toISOString().slice(0, 10)) {
-    throw new Error("This teacher code is expired");
+    throw new Error("This class code is expired");
   }
 
   const provisioningApp = initializeApp(
@@ -1153,11 +1227,26 @@ export async function createPendingReplacementTeacherAccount(
   teacherName: string,
   email: string,
   password: string,
-  createdBy: string
+  createdBy: string,
+  schoolAdminUid?: string
 ): Promise<void> {
   const db = getDatabase();
   const normalizedName = teacherName.trim();
   const normalizedEmail = email.trim().toLowerCase();
+  const users = schoolAdminUid ? await fetchAllUsers() : {};
+  const schoolAdmin = schoolAdminUid
+    ? (users[schoolAdminUid] as Admin | undefined)
+    : undefined;
+
+  if (schoolAdminUid && (!schoolAdmin || schoolAdmin.role !== "school_admin")) {
+    throw new Error("School account not found");
+  }
+
+  const schoolName =
+    schoolAdmin?.school_details?.school_name ||
+    schoolAdmin?.sign_in_details?.name ||
+    schoolAdmin?.name ||
+    "";
   const provisioningApp = initializeApp(
     firebaseConfig,
     `replacement-teacher-provisioning-${Date.now()}`
@@ -1170,19 +1259,35 @@ export async function createPendingReplacementTeacherAccount(
       normalizedEmail,
       password
     );
+    const teacherUid = result.user.uid;
+    const assignedAt = new Date().toISOString();
 
-    await set(ref(db, `users/${result.user.uid}`), {
-      is_teacher: true,
-      display_name: normalizedName,
-      teacher_status: CLASS_CODE_PENDING_STATUS,
-      created_by: createdBy,
-      sign_in_details: {
-        device_id: "",
-        device_type: "",
-        sign_in_email: normalizedEmail,
-        is_sign_in: true,
-        sign_in_time: "",
-      },
+    await update(ref(db), {
+      [`users/${teacherUid}`]: removeUndefinedValues({
+        is_teacher: true,
+        display_name: normalizedName,
+        display_school: schoolName || undefined,
+        school_admin_uid: schoolAdminUid,
+        teacher_status: CLASS_CODE_PENDING_STATUS,
+        created_by: createdBy,
+        teacher_code: "",
+        sign_in_details: {
+          device_id: "",
+          device_type: "",
+          sign_in_email: normalizedEmail,
+          is_sign_in: true,
+          sign_in_time: "",
+        },
+      }),
+      ...(schoolAdminUid
+        ? {
+            [`users/${schoolAdminUid}/teachers/${teacherUid}`]: removeUndefinedValues({
+              uid: teacherUid,
+              school_admin_uid: schoolAdminUid,
+              assigned_at: assignedAt,
+            } satisfies AdminTeacher),
+          }
+        : {}),
     });
   } finally {
     await signOut(provisioningAuth).catch(() => undefined);

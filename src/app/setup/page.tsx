@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { SchoolDetails } from "@/lib/types";
+import { LogOut } from "lucide-react";
 
 const COUNTRIES = [
   "Afghanistan",
@@ -298,9 +299,10 @@ function formatPhoneNumber(country: string, value: string) {
 }
 
 export default function SetupPage() {
-  const { user, admin, completeAdminSetup, loading } = useAuth();
+  const { user, admin, completeAdminSetup, loading, logout } = useAuth();
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const [formData, setFormData] = useState<SchoolDetails>({
     school_name: "",
     country: "United States",
@@ -325,7 +327,12 @@ export default function SetupPage() {
       return;
     }
 
-    if (admin?.sign_in_details?.is_setup_complete) {
+    if (admin?.role !== "school_admin") {
+      router.push("/admin/dashboard");
+      return;
+    }
+
+    if (admin.sign_in_details?.is_setup_complete) {
       router.push("/admin/dashboard");
     }
   }, [user, admin, loading, router]);
@@ -371,7 +378,20 @@ export default function SetupPage() {
     }));
   };
 
-  if (loading || !admin || admin.sign_in_details?.is_setup_complete) {
+  const handleSignOut = async () => {
+    setIsSigningOut(true);
+
+    try {
+      await logout();
+      router.push("/login");
+    } catch {
+      toast.error("Failed to sign out");
+    } finally {
+      setIsSigningOut(false);
+    }
+  };
+
+  if (loading || !user || (admin && admin.role !== "school_admin") || admin?.sign_in_details?.is_setup_complete) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-50 to-orange-100">
         <img
@@ -379,6 +399,39 @@ export default function SetupPage() {
           alt="Early Learning Library"
           className="w-20 h-20 rounded-2xl animate-pulse"
         />
+      </div>
+    );
+  }
+
+  if (!admin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-50 to-orange-100 p-4">
+        <Card className="w-full max-w-md shadow-xl">
+          <CardHeader className="space-y-4 text-center">
+            <div className="flex justify-center">
+              <img
+                src="/logo.png"
+                alt="Early Learning Library"
+                className="h-20 w-20 rounded-2xl object-cover"
+              />
+            </div>
+            <CardTitle className="text-2xl font-bold">Use a school admin account</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5 text-center">
+            <p className="text-sm text-muted-foreground">
+              This setup page is only for school admin accounts. Please sign out and use the correct account.
+            </p>
+            <Button
+              type="button"
+              className="w-full bg-[#155C8A] text-white hover:bg-[#0F4D78]"
+              onClick={handleSignOut}
+              disabled={isSigningOut}
+            >
+              <LogOut className="mr-2 h-4 w-4" />
+              {isSigningOut ? "Signing out..." : "Sign Out"}
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -391,6 +444,18 @@ export default function SetupPage() {
         </h1>
         <Card className="shadow-xl">
           <CardHeader className="space-y-1 text-center">
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleSignOut}
+                disabled={isSubmitting || isSigningOut}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                {isSigningOut ? "Signing out..." : "Sign Out"}
+              </Button>
+            </div>
             <div className="flex justify-center mb-4">
               <img
                 src="/logo.png"

@@ -1,0 +1,156 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; color: #222; line-height: 1.45; font-size: 11pt; }
+    h1 { color: #145A8D; font-size: 18pt; margin-top: 22px; margin-bottom: 8px; }
+    h2 { color: #333; font-size: 14pt; margin-top: 16px; margin-bottom: 6px; }
+    .title { text-align: center; color: #111; font-size: 24pt; font-weight: 700; margin-top: 24px; }
+    .subtitle { text-align: center; color: #666; font-size: 13pt; margin-bottom: 6px; }
+    .center { text-align: center; }
+    table { border-collapse: collapse; width: 100%; margin: 10px 0 16px; }
+    th { background: #DDEBF7; font-weight: 700; }
+    th, td { border: 1px solid #DDDDDD; padding: 7px 8px; vertical-align: top; }
+    ul, ol { margin-top: 4px; margin-bottom: 10px; }
+    li { margin-bottom: 4px; }
+    .note { font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="title">Super Admin User Guide</div>
+  <div class="subtitle">Early Learning Library Admin Portal</div>
+  <p class="center">Production URL: https://class-room-admin.vercel.app/login</p>
+
+  <h1>Purpose</h1>
+  <p>This guide explains the Super Admin features used to manage schools, class codes, teachers, students, and system-level records.</p>
+
+  <h1>Access and Passwords</h1>
+  <ul>
+    <li>Super Admin users sign in with email and password.</li>
+    <li>To create a Super Admin account, open the sign-in page and tap the app logo five times. The hidden sign-up option will appear.</li>
+    <li>Google and Apple sign-in are not supported in this portal.</li>
+    <li>Use Reset Password on the sign-in page if a password needs to be changed.</li>
+    <li>Super Admin can send password reset links for school accounts and teacher accounts when needed.</li>
+  </ul>
+
+  <h1>Dashboard</h1>
+  <p>The Dashboard shows overall system counts across all schools, teachers, students, class codes, books read, and activity.</p>
+
+  <h1>Schools</h1>
+  <p>The Schools section is available only to Super Admin.</p>
+  <table>
+    <thead><tr><th>Action</th><th>What It Does</th></tr></thead>
+    <tbody>
+      <tr><td>Create School Account</td><td>Creates a school admin login. The school completes school details during first-time setup.</td></tr>
+      <tr><td>Use Enrolled Teacher Account</td><td>Adds school admin access to an enrolled teacher account, only if the teacher is not already connected to another school.</td></tr>
+      <tr><td>Info</td><td>Shows school name, email, location, phone, teacher count, student count, and account details.</td></tr>
+      <tr><td>View Teachers</td><td>Opens the Teachers page filtered to that school.</td></tr>
+      <tr><td>View Students</td><td>Opens the Students page filtered to that school.</td></tr>
+      <tr><td>Send Reset Password Link</td><td>Sends a secure password reset email to the school admin.</td></tr>
+      <tr><td>Activate / Deactivate</td><td>Controls whether the school admin can access the portal.</td></tr>
+    </tbody>
+  </table>
+
+  <h1>Class Codes</h1>
+  <p>Class Codes are used to connect teacher accounts with class access and student limits.</p>
+  <table>
+    <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td>Available</td><td>The class code exists and is not used by any teacher.</td></tr>
+      <tr><td>Teacher Claimed</td><td>A teacher has used the class code, but the teacher is not yet connected to a school.</td></tr>
+      <tr><td>School Assigned</td><td>A teacher has used the class code and the teacher is connected to a school.</td></tr>
+      <tr><td>Expired</td><td>The class code expiry date has passed.</td></tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>Create class codes with expiry date and student limit.</li>
+    <li>Search class codes by code, teacher, or school.</li>
+    <li>Filter class codes by type.</li>
+    <li>Sort class codes by status and assigned school.</li>
+    <li>Delete expired, teacher claimed, or unused class codes after confirmation.</li>
+  </ul>
+  <p class="note">Deleting an expired or teacher claimed class code may also remove the teacher account and related student links from the database. Codes assigned to a school are not part of normal cleanup unless they are expired and confirmed for removal.</p>
+
+  <h1>Teachers</h1>
+  <p>The Teachers section shows all teacher accounts in the system.</p>
+  <table>
+    <thead><tr><th>Action</th><th>What It Does</th></tr></thead>
+    <tbody>
+      <tr><td>Info</td><td>Shows email, class code, school, last sign-in, student count, class assignments, and individual assignments.</td></tr>
+      <tr><td>Set School</td><td>Connects a teacher with a claimed class code to the correct school and updates the displayed school name.</td></tr>
+      <tr><td>Create Incoming Teacher</td><td>Creates a teacher account without a class code. This teacher appears as Class Code Pending until a class is transferred.</td></tr>
+      <tr><td>Transfer Class</td><td>Moves the class code and linked students from an enrolled teacher to an incoming teacher.</td></tr>
+      <tr><td>Delete Teacher</td><td>Deletes a teacher only when the teacher has no active class code and no students.</td></tr>
+      <tr><td>Send Reset Password Link</td><td>Sends a secure reset link after the teacher has an active class code.</td></tr>
+      <tr><td>Share Details</td><td>Shares teacher email, class code, and sign-in instructions after the teacher has an active class code.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Incoming Teacher Flow</h2>
+  <ol>
+    <li>Create an incoming teacher account with teacher name, teacher email, and password.</li>
+    <li>Optionally select a school while creating the incoming teacher.</li>
+    <li>The teacher appears as Class Code Pending.</li>
+    <li>Use Transfer Class from the enrolled teacher.</li>
+    <li>Select the incoming teacher.</li>
+    <li>The class code and linked students move to the incoming teacher.</li>
+    <li>The enrolled teacher is changed to Class Code Pending and remains visible so the school can decide what to do next.</li>
+    <li>The enrolled teacher keeps teacher_code with an empty value.</li>
+    <li>The enrolled teacher keeps assigned class/books data.</li>
+    <li>After transfer, send a reset password link or share teacher details with the incoming teacher.</li>
+  </ol>
+
+  <h1>Students</h1>
+  <p>Super Admin can view all students in the system, with filters for school and teacher context.</p>
+  <ul>
+    <li>Use Info to view parent email, last used, age, class code, teacher name, books read, and Smart Coins.</li>
+    <li>Delete one selected child profile from a student account that has more than one child.</li>
+    <li>Delete the entire student account, including all child profiles under it, when needed after confirmation.</li>
+    <li>Student movement validates teacher eligibility, class code expiry, and student limit.</li>
+  </ul>
+
+  <h1>Important Rules</h1>
+  <ul>
+    <li>A school cannot add a class code that is already assigned to another school.</li>
+    <li>A Class Code Pending teacher must not already have an active class code or students before receiving a transferred class.</li>
+    <li>Teacher login details should be shared only after the teacher has an active class code.</li>
+    <li>Firebase Auth account deletion depends on backend function support.</li>
+  </ul>
+
+  <h1>Testing Checklist</h1>
+  <ul>
+    <li>Super Admin sign-in and dashboard loads.</li>
+    <li>Create school account and send reset password link.</li>
+    <li>Create class code with valid format.</li>
+    <li>Reject class code with invalid format.</li>
+    <li>Set school for a teacher with claimed class code.</li>
+    <li>Create incoming teacher and transfer class.</li>
+    <li>Confirm enrolled teacher keeps assigned class/books data.</li>
+    <li>Confirm teacher details can be shared only after transfer.</li>
+    <li>Delete single child profile from a multi-child student account.</li>
+    <li>Delete entire student account after confirmation.</li>
+    <li>Delete allowed expired class code after confirmation.</li>
+  </ul>
+
+  <h1>Glossary</h1>
+  <table>
+    <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td>Super Admin</td><td>An internal admin user who can manage schools, class codes, teachers, students, and system-level records.</td></tr>
+      <tr><td>School Admin</td><td>A school or center admin user who can manage only the teachers and students connected to their school.</td></tr>
+      <tr><td>Class Code</td><td>A code used to connect a teacher account with class access and student limit.</td></tr>
+      <tr><td>Available</td><td>A class code exists and is not used by any teacher.</td></tr>
+      <tr><td>Teacher Claimed</td><td>A teacher has used the class code, but the teacher is not yet connected to a school.</td></tr>
+      <tr><td>School Assigned</td><td>A teacher has used the class code and the teacher is connected to a school.</td></tr>
+      <tr><td>Expired</td><td>The class code expiry date has passed.</td></tr>
+      <tr><td>Enrolled Teacher</td><td>A teacher who already exists in the system and has claimed a class code, but may not be linked to a school yet.</td></tr>
+      <tr><td>Incoming Teacher</td><td>A teacher account created before receiving a transferred class.</td></tr>
+      <tr><td>Class Code Pending</td><td>A teacher has no active class code yet.</td></tr>
+      <tr><td>Transfer Class</td><td>Moves the class code and linked students from an enrolled teacher to an incoming teacher.</td></tr>
+      <tr><td>Student Account</td><td>The login account used by a family/student. One student account can contain one or more child profiles.</td></tr>
+      <tr><td>Child Profile</td><td>An individual child record inside a student account. It stores that child's name, age, reading activity, rewards, and teacher/class connection.</td></tr>
+    </tbody>
+  </table>
+</body>
+</html>

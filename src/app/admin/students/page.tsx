@@ -71,6 +71,10 @@ const getLocalDateValue = () => {
   return `${year}-${month}-${day}`;
 };
 
+const isClassCodePendingTeacher = (teacher: TeacherListItem) =>
+  teacher.status === "class_code_pending" ||
+  teacher.status === "pending_replacement";
+
 export default function StudentsPage() {
   const { admin } = useAuth();
   const searchParams = useSearchParams();
@@ -290,12 +294,12 @@ export default function StudentsPage() {
 
       const targetCode = getClassCodeForTeacher(selectedTeacherData.uid);
       if (!targetCode) {
-        toast.error("Selected teacher code not found");
+        toast.error("Selected class code not found");
         return;
       }
 
       if (isClassCodeExpired(targetCode)) {
-        toast.error("Selected teacher code is expired");
+        toast.error("Selected class code is expired");
         return;
       }
 
@@ -410,6 +414,10 @@ export default function StudentsPage() {
     );
   };
 
+  const activeTeacherOptions = teachers.filter(
+    (teacher) => !isClassCodePendingTeacher(teacher)
+  );
+
   return (
     <div className="space-y-6">
       <div>
@@ -438,7 +446,7 @@ export default function StudentsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Teachers</SelectItem>
-                  {teachers.map((teacher) => (
+                  {activeTeacherOptions.map((teacher) => (
                     <SelectItem key={teacher.uid} value={teacher.uid}>
                       {teacher.name} ({teacher.teacherCode})
                     </SelectItem>
@@ -477,7 +485,7 @@ export default function StudentsPage() {
                       size="sm"
                       className="mx-auto gap-1.5 px-2"
                       onClick={() => handleSort("teacherCode")}
-                      aria-label={`${getSortLabel("teacherCode")} by teacher code`}
+                      aria-label={`${getSortLabel("teacherCode")} by class code`}
                     >
                       Teacher
                       <ArrowUpDown className="h-3.5 w-3.5" />
@@ -657,7 +665,7 @@ export default function StudentsPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Points Earned
+              Total Smart Coins Earned
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -723,7 +731,7 @@ export default function StudentsPage() {
                       <div className="grid gap-3 sm:grid-cols-3">
                         <div className="space-y-1">
                           <div className="text-xs font-medium uppercase text-muted-foreground">
-                            Teacher Code
+                            Class Code
                           </div>
                           <Badge variant="secondary" className="font-mono">
                             {child.teacherCode || "-"}
@@ -743,7 +751,7 @@ export default function StudentsPage() {
                         </div>
                         <div className="space-y-1">
                           <div className="text-xs font-medium uppercase text-muted-foreground">
-                            Total Points
+                            Total Smart Coins
                           </div>
                           <div className="text-sm tabular-nums">
                             {child.totalPoints.toLocaleString()}
@@ -928,7 +936,7 @@ export default function StudentsPage() {
                               value={child.id}
                               className="data-[state=checked]:bg-primary/10 data-[state=checked]:text-primary data-[state=checked]:font-medium data-[state=checked]:[&_svg]:text-primary"
                             >
-                              {child.name} ({child.teacherCode || "No teacher code"})
+                              {child.name} ({child.teacherCode || "No class code"})
                             </SelectItem>
                           ))}
                         </SelectContent>

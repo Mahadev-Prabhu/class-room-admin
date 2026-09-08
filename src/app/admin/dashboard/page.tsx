@@ -140,9 +140,9 @@ export default function DashboardPage() {
       bgColor: "bg-teal-50",
     },
     {
-      title: "Teacher Codes",
+      title: "Class Codes",
       value: stats?.classCodes || 0,
-      description: "Managed teacher codes",
+      description: "Managed class codes",
       icon: (
         <svg
           xmlns="http://www.w3.org/2000/svg"
