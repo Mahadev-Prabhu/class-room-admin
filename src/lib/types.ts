@@ -137,6 +137,7 @@ export interface TeacherListItem {
   name: string;
   email: string;
   school: string;
+  schoolAdminUid?: string;
   teacherCode: string;
   status?: string;
   studentCount: number;

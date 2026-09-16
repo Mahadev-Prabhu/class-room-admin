@@ -53,6 +53,7 @@ function adminTeacherToListItem(
       formatDisplayName(teacherUser.teacher_details?.teacher_school) ||
       formatDisplayName(teacherUser.display_school) ||
       "Unknown",
+    schoolAdminUid: teacherUser.school_admin_uid || teacher.school_admin_uid,
     teacherCode: teacherUser.teacher_code || teacher.teacher_code || "",
     status: teacherUser.teacher_status,
     studentCount: countTeacherStudents(teacherUser),
@@ -220,6 +221,7 @@ export async function fetchTeachers(): Promise<TeacherListItem[]> {
           formatDisplayName(teacher.teacher_details?.teacher_school) ||
           formatDisplayName(teacher.display_school) ||
           "Unknown",
+        schoolAdminUid: teacher.school_admin_uid,
         teacherCode,
         status: teacher.teacher_status,
         studentCount: studentCounts.byUid.get(uid) || 0,
@@ -837,7 +839,8 @@ export async function moveStudentsToTeacher(
 export async function transferTeacherAssignment(
   teacherCode: string,
   fromTeacherUid: string,
-  toTeacherUid: string
+  toTeacherUid: string,
+  requestedByAdmin?: Pick<Admin, "uid" | "role" | "roles">
 ): Promise<void> {
   const db = getDatabase();
   const users = await fetchAllUsers();
@@ -846,9 +849,20 @@ export async function transferTeacherAssignment(
   const schoolAdminUid = classCode?.school_admin_uid;
   const fromTeacher = users[fromTeacherUid] as TeacherUser | undefined;
   const toTeacher = users[toTeacherUid] as TeacherUser | undefined;
+  const schoolAdmin = schoolAdminUid
+    ? (users[schoolAdminUid] as Admin | undefined)
+    : undefined;
 
   if (!schoolAdminUid) {
     throw new Error("Teacher code is not assigned to a school");
+  }
+
+  const isSuperAdmin =
+    requestedByAdmin?.role === "super_admin" ||
+    requestedByAdmin?.roles?.includes("super_admin");
+
+  if (requestedByAdmin && !isSuperAdmin && requestedByAdmin.uid !== schoolAdminUid) {
+    throw new Error("You can transfer only classes connected to your school");
   }
 
   if (!fromTeacher || fromTeacher.is_teacher !== true) {
@@ -864,7 +878,15 @@ export async function transferTeacherAssignment(
   );
   const targetStudentCount = countTeacherStudents(toTeacher);
 
-  if (targetHasActiveCode || targetStudentCount > 0) {
+  const targetBelongsToSchool =
+    toTeacher.school_admin_uid === schoolAdminUid ||
+    Boolean(schoolAdmin?.teachers?.[toTeacherUid]);
+
+  if (!targetBelongsToSchool) {
+    throw new Error("Selected incoming teacher belongs to another school");
+  }
+
+  if (targetHasActiveCode || targetStudentCount > 0 || toTeacher.teacher_code) {
     throw new Error("Selected teacher already has an active class");
   }
 

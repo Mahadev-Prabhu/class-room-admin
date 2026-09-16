@@ -251,6 +251,20 @@ export default function TeachersPage() {
   const canDeleteTeacher = (teacher: TeacherListItem) =>
     !teacher.teacherCode && teacher.studentCount === 0;
 
+  const canTransferTeacher = (teacher: TeacherListItem) => {
+    const assignedCode = getAssignedCodeForTeacher(teacher.uid);
+
+    if (!assignedCode) {
+      return false;
+    }
+
+    if (admin?.role === "super_admin") {
+      return true;
+    }
+
+    return assignedCode.school_admin_uid === admin?.uid;
+  };
+
   const canSetSchool = (teacher: TeacherListItem) => {
     if (admin?.role !== "super_admin" || !teacher.teacherCode) {
       return false;
@@ -390,14 +404,23 @@ export default function TeachersPage() {
       return [];
     }
 
+    const assignedCode = getAssignedCodeForTeacher(transferTeacher.uid);
+    const assignedSchoolUid = assignedCode?.school_admin_uid;
+
     return teachers.filter((teacher) => {
       const hasActiveAssignedCode = classCodes.some(
         (code) => code.teacher_uid === teacher.uid && code.school_admin_uid
       );
+      const isSameSchool =
+        admin?.role === "super_admin"
+          ? !assignedSchoolUid || teacher.schoolAdminUid === assignedSchoolUid
+          : teacher.schoolAdminUid === admin?.uid;
 
       return (
         teacher.uid !== transferTeacher.uid &&
+        isSameSchool &&
         isClassCodePendingStatus(teacher.status) &&
+        !teacher.teacherCode &&
         !hasActiveAssignedCode &&
         teacher.studentCount === 0
       );
@@ -410,7 +433,7 @@ export default function TeachersPage() {
   };
 
   const handleTransferAssignment = async () => {
-    if (!transferTeacher || !targetTeacherUid) {
+    if (!admin || !transferTeacher || !targetTeacherUid) {
       toast.error("Please select a teacher");
       return;
     }
@@ -427,13 +450,14 @@ export default function TeachersPage() {
       await transferTeacherAssignment(
         assignedCode.code,
         transferTeacher.uid,
-        targetTeacherUid
+        targetTeacherUid,
+        admin
       );
       toast.success("Teacher assignment transferred successfully");
       closeTransferDialog();
 
       const [teachersData, codesData] = await Promise.all([
-        fetchTeachers(),
+        admin.role === "super_admin" ? fetchTeachers() : fetchAdminTeachers(admin.uid),
         fetchClassCodes(),
       ]);
       setTeachers(teachersData);
@@ -476,7 +500,7 @@ export default function TeachersPage() {
   };
 
   const handleCreateReplacementTeacher = async () => {
-    if (admin?.role !== "super_admin") return;
+    if (!admin) return;
 
     const normalizedName = replacementTeacherName.trim();
     const normalizedEmail = replacementTeacherEmail.trim().toLowerCase();
@@ -504,14 +528,19 @@ export default function TeachersPage() {
     setIsCreatingReplacementTeacher(true);
 
     try {
+      const schoolAdminUid =
+        admin.role === "school_admin"
+          ? admin.uid
+          : replacementTeacherSchoolUid === "none"
+            ? undefined
+            : replacementTeacherSchoolUid;
+
       await createPendingReplacementTeacherAccount(
         normalizedName,
         normalizedEmail,
         replacementTeacherPassword,
         admin.uid,
-        replacementTeacherSchoolUid === "none"
-          ? undefined
-          : replacementTeacherSchoolUid
+        schoolAdminUid
       );
       toast.success("Incoming teacher account created successfully");
       resetReplacementTeacherForm();
@@ -884,13 +913,23 @@ export default function TeachersPage() {
             Create Incoming Teacher
           </Button>
         ) : (
-          <Button
-            onClick={() => setIsTeacherDialogOpen(true)}
-            className="shadow-sm"
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Add Teacher
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsReplacementDialogOpen(true)}
+              className="border-blue-200 text-blue-700 shadow-sm hover:bg-blue-50 hover:text-blue-800"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Create Incoming Teacher
+            </Button>
+            <Button
+              onClick={() => setIsTeacherDialogOpen(true)}
+              className="shadow-sm"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Add Teacher
+            </Button>
+          </div>
         )}
       </div>
 
@@ -959,8 +998,6 @@ export default function TeachersPage() {
               </TableHeader>
               <TableBody>
                 {sortedTeachers.map((teacher) => {
-                  const assignedCode = getAssignedCodeForTeacher(teacher.uid);
-
                   return (
                     <TableRow key={teacher.uid}>
                       <TableCell>
@@ -1025,7 +1062,7 @@ export default function TeachersPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-44">
-                            {admin?.role === "super_admin" && assignedCode && (
+                            {canTransferTeacher(teacher) && (
                               <DropdownMenuItem onClick={() => setTransferTeacher(teacher)}>
                                 <ArrowRightLeft className="h-4 w-4" />
                                 Transfer Class
@@ -1046,7 +1083,7 @@ export default function TeachersPage() {
                                 Delete Teacher
                               </DropdownMenuItem>
                             )}
-                            {!assignedCode && !canSetSchool(teacher) && !canDeleteTeacher(teacher) && (
+                            {!canTransferTeacher(teacher) && !canSetSchool(teacher) && !canDeleteTeacher(teacher) && (
                               <DropdownMenuItem disabled>
                                 No actions available
                               </DropdownMenuItem>
@@ -1514,29 +1551,36 @@ export default function TeachersPage() {
                 disabled={isCreatingReplacementTeacher}
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="replacementTeacherSchool">School (Optional)</Label>
-              <Select
-                value={replacementTeacherSchoolUid}
-                onValueChange={setReplacementTeacherSchoolUid}
-                disabled={isCreatingReplacementTeacher}
-              >
-                <SelectTrigger id="replacementTeacherSchool">
-                  <SelectValue placeholder="Select school" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No school selected</SelectItem>
-                  {schools.map((school) => (
-                    <SelectItem key={school.uid} value={school.uid}>
-                      {school.school_details?.school_name ||
-                        school.sign_in_details?.name ||
-                        school.name ||
-                        school.email}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {admin?.role === "super_admin" ? (
+              <div className="space-y-2">
+                <Label htmlFor="replacementTeacherSchool">School (Optional)</Label>
+                <Select
+                  value={replacementTeacherSchoolUid}
+                  onValueChange={setReplacementTeacherSchoolUid}
+                  disabled={isCreatingReplacementTeacher}
+                >
+                  <SelectTrigger id="replacementTeacherSchool">
+                    <SelectValue placeholder="Select school" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No school selected</SelectItem>
+                    {schools.map((school) => (
+                      <SelectItem key={school.uid} value={school.uid}>
+                        {school.school_details?.school_name ||
+                          school.sign_in_details?.name ||
+                          school.name ||
+                          school.email}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+                This incoming teacher will be connected to your school and can
+                be selected during Transfer Class.
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button
