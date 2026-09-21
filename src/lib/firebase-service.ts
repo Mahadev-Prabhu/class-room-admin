@@ -50,6 +50,7 @@ function adminTeacherToListItem(
       "Unknown",
     email: teacherUser.sign_in_details?.sign_in_email || "Unknown",
     school:
+      formatDisplayName(teacherUser.school_name) ||
       formatDisplayName(teacherUser.teacher_details?.teacher_school) ||
       formatDisplayName(teacherUser.display_school) ||
       "Unknown",
@@ -188,6 +189,15 @@ function removeUndefinedValues<T extends object>(value: T) {
   ) as Partial<T>;
 }
 
+function getAdminSchoolName(schoolAdmin?: Admin) {
+  return (
+    schoolAdmin?.school_details?.school_name ||
+    schoolAdmin?.sign_in_details?.name ||
+    schoolAdmin?.name ||
+    ""
+  );
+}
+
 // Fetch all users from Firebase
 export async function fetchAllUsers(): Promise<Record<string, FirebaseUser>> {
   const db = getDatabase();
@@ -218,6 +228,7 @@ export async function fetchTeachers(): Promise<TeacherListItem[]> {
           "Unknown",
         email: teacher.sign_in_details?.sign_in_email || "Unknown",
         school:
+          formatDisplayName(teacher.school_name) ||
           formatDisplayName(teacher.teacher_details?.teacher_school) ||
           formatDisplayName(teacher.display_school) ||
           "Unknown",
@@ -595,8 +606,15 @@ export async function assignTeacherCodeToSchool(
   schoolAdminUid: string
 ): Promise<void> {
   const db = getDatabase();
+  const users = await fetchAllUsers();
+  const schoolAdmin = users[schoolAdminUid] as Admin | undefined;
   const teacherCodeRef = ref(db, `teacher_codes/${code}`);
   let assignedToAnotherSchool = false;
+  let teacherUid = "";
+
+  if (!schoolAdmin || schoolAdmin.role !== "school_admin") {
+    throw new Error("School account not found");
+  }
 
   const result = await runTransaction(teacherCodeRef, (teacherCode) => {
     if (!teacherCode || typeof teacherCode !== "object") {
@@ -611,6 +629,8 @@ export async function assignTeacherCodeToSchool(
       return;
     }
 
+    teacherUid = teacherCode.used_by || teacherCode.teacher_uid || "";
+
     return {
       ...teacherCode,
       school_admin_uid: schoolAdminUid,
@@ -623,6 +643,13 @@ export async function assignTeacherCodeToSchool(
 
   if (!result.committed) {
     throw new Error("Teacher code not found");
+  }
+
+  if (teacherUid) {
+    await update(ref(db), {
+      [`users/${teacherUid}/school_name`]: getAdminSchoolName(schoolAdmin),
+      [`users/${teacherUid}/school_admin_uid`]: schoolAdminUid,
+    });
   }
 }
 
@@ -643,11 +670,44 @@ export async function setTeacherSchool(
     throw new Error("School account not found");
   }
 
-  const teacherCodeRef = ref(db, `teacher_codes/${teacher.teacher_code}`);
+  const normalizedTeacherCode = teacher.teacher_code.trim().toUpperCase();
+  const teacherCodesSnapshot = await get(ref(db, "teacher_codes"));
+  const teacherCodes = teacherCodesSnapshot.exists()
+    ? (teacherCodesSnapshot.val() as Record<string, unknown>)
+    : {};
+  let resolvedCode = normalizedTeacherCode;
+  let resolvedCodeValue = teacherCodes[resolvedCode];
+
+  if (!resolvedCodeValue || typeof resolvedCodeValue !== "object") {
+    const matchingEntry = Object.entries(teacherCodes).find(([, value]) => {
+      if (!value || typeof value !== "object") {
+        return false;
+      }
+
+      return (value as { used_by?: string }).used_by === teacherUid;
+    });
+
+    if (matchingEntry) {
+      resolvedCode = matchingEntry[0];
+      resolvedCodeValue = matchingEntry[1];
+    }
+  }
+
+  if (!resolvedCodeValue || typeof resolvedCodeValue !== "object") {
+    throw new Error("Class code not found");
+  }
+
+  const teacherCodeRef = ref(db, `teacher_codes/${resolvedCode}`);
   let assignedToAnotherSchool = false;
+  let assignedToAnotherTeacher = false;
 
   const result = await runTransaction(teacherCodeRef, (teacherCode) => {
     if (!teacherCode || typeof teacherCode !== "object") {
+      return;
+    }
+
+    if (teacherCode.used_by && teacherCode.used_by !== teacherUid) {
+      assignedToAnotherTeacher = true;
       return;
     }
 
@@ -661,9 +721,14 @@ export async function setTeacherSchool(
 
     return {
       ...teacherCode,
+      used_by: teacherUid,
       school_admin_uid: schoolAdminUid,
     };
   });
+
+  if (assignedToAnotherTeacher) {
+    throw new Error("This class code is already assigned to another teacher");
+  }
 
   if (assignedToAnotherSchool) {
     throw new Error("This class code is already assigned to another school");
@@ -673,23 +738,19 @@ export async function setTeacherSchool(
     throw new Error("Class code not found");
   }
 
-  const schoolName =
-    schoolAdmin.school_details?.school_name ||
-    schoolAdmin.sign_in_details?.name ||
-    schoolAdmin.name ||
-    "";
+  const schoolName = getAdminSchoolName(schoolAdmin);
   const assignedAt = new Date().toISOString();
 
   await update(ref(db), {
     [`users/${schoolAdminUid}/teachers/${teacherUid}`]: {
       uid: teacherUid,
       school_admin_uid: schoolAdminUid,
-      teacher_code: teacher.teacher_code,
+      teacher_code: resolvedCode,
       assigned_at: assignedAt,
     },
-    [`users/${teacherUid}/display_school`]: schoolName,
+    [`users/${teacherUid}/teacher_code`]: resolvedCode,
+    [`users/${teacherUid}/school_name`]: schoolName,
     [`users/${teacherUid}/school_admin_uid`]: schoolAdminUid,
-    [`users/${teacherUid}/teacher_details/teacher_school`]: schoolName,
   });
 }
 
@@ -750,7 +811,8 @@ export async function moveStudentsToTeacher(
   studentUid: string,
   childIds: string[],
   newTeacherCode: string,
-  newTeacherUid: string
+  newTeacherUid: string,
+  requestedByAdmin?: Pick<Admin, "uid" | "role" | "roles">
 ): Promise<void> {
   const db = getDatabase();
   const users = await fetchAllUsers();
@@ -774,6 +836,22 @@ export async function moveStudentsToTeacher(
     throw new Error("Teacher code not found");
   }
 
+  if (!targetCode.school_admin_uid) {
+    throw new Error("Selected class code is not assigned to a school");
+  }
+
+  const isSuperAdmin =
+    requestedByAdmin?.role === "super_admin" ||
+    requestedByAdmin?.roles?.includes("super_admin");
+
+  if (
+    requestedByAdmin &&
+    !isSuperAdmin &&
+    requestedByAdmin.uid !== targetCode.school_admin_uid
+  ) {
+    throw new Error("You can move students only within your school");
+  }
+
   if (
     targetCode.expiration_date &&
     targetCode.expiration_date <= getLocalDateValue()
@@ -794,6 +872,16 @@ export async function moveStudentsToTeacher(
 
     if (child.teacher_uid === newTeacherUid || child.teacher_code === newTeacherCode) {
       throw new Error(`${child.child_name || "Selected child"} is already with this teacher`);
+    }
+
+    const currentCode = classCodes.find(
+      (code) =>
+        code.code === child.teacher_code ||
+        (child.teacher_uid && code.teacher_uid === child.teacher_uid)
+    );
+
+    if (currentCode?.school_admin_uid !== targetCode.school_admin_uid) {
+      throw new Error("Students can be moved only within the same school");
     }
 
     return { childId, child };
@@ -891,6 +979,7 @@ export async function transferTeacherAssignment(
   }
 
   const transferredAt = new Date().toISOString();
+  const schoolName = getAdminSchoolName(schoolAdmin);
   const updates: Record<string, unknown> = {
     [`teacher_codes/${teacherCode}/used_by`]: toTeacherUid,
     [`teacher_codes/${teacherCode}/school_admin_uid`]: schoolAdminUid,
@@ -901,6 +990,8 @@ export async function transferTeacherAssignment(
     [`users/${fromTeacherUid}/replaced_by`]: toTeacherUid,
     [`users/${toTeacherUid}/teacher_code`]: teacherCode,
     [`users/${toTeacherUid}/teacher_status`]: null,
+    [`users/${toTeacherUid}/school_name`]: schoolName,
+    [`users/${toTeacherUid}/school_admin_uid`]: schoolAdminUid,
     [`users/${schoolAdminUid}/teachers/${fromTeacherUid}`]: removeUndefinedValues({
       uid: fromTeacherUid,
       school_admin_uid: schoolAdminUid,
@@ -971,6 +1062,128 @@ export async function deletePendingTeacher(
   }
 
   await update(ref(db), updates);
+}
+
+export async function deleteTeacherAccountCascade(
+  teacherUid: string,
+  requestedByAdmin: Admin
+): Promise<{
+  deletedTeacherUid: string;
+  deletedClassCode?: string;
+  deletedStudentAccounts: number;
+  deletedChildProfiles: number;
+}> {
+  const isSuperAdmin =
+    requestedByAdmin.role === "super_admin" ||
+    requestedByAdmin.roles?.includes("super_admin");
+
+  if (!isSuperAdmin) {
+    throw new Error("Only Super Admin can delete teacher accounts with connected data");
+  }
+
+  const db = getDatabase();
+  const users = await fetchAllUsers();
+  const teacher = users[teacherUid] as TeacherUser | undefined;
+
+  if (!teacher || teacher.is_teacher !== true) {
+    throw new Error("Teacher account not found");
+  }
+
+  const classCodes = await fetchClassCodes();
+  const classCode =
+    teacher.teacher_code ||
+    classCodes.find((code) => code.teacher_uid === teacherUid)?.code ||
+    "";
+  const matchingChildrenByStudentUid = new Map<string, Set<string>>();
+
+  const addMatchingChild = (studentUid: string, childId: string) => {
+    const existing = matchingChildrenByStudentUid.get(studentUid) || new Set<string>();
+    existing.add(childId);
+    matchingChildrenByStudentUid.set(studentUid, existing);
+  };
+
+  if (teacher.students) {
+    for (const [studentUid, children] of Object.entries(teacher.students)) {
+      for (const childId of Object.keys(children || {})) {
+        addMatchingChild(studentUid, childId);
+      }
+    }
+  }
+
+  for (const [studentUid, user] of Object.entries(users)) {
+    if (!isStudentUser(user) || !user.children) {
+      continue;
+    }
+
+    for (const [childId, child] of Object.entries(user.children)) {
+      if (
+        child.teacher_uid === teacherUid ||
+        (classCode && child.teacher_code === classCode)
+      ) {
+        addMatchingChild(studentUid, childId);
+      }
+    }
+  }
+
+  let deletedStudentAccounts = 0;
+  let deletedChildProfiles = 0;
+  const updates: Record<string, unknown> = {
+    [`users/${teacherUid}`]: null,
+  };
+
+  if (classCode) {
+    updates[`teacher_codes/${classCode}`] = null;
+  }
+
+  for (const [uid, user] of Object.entries(users)) {
+    const possibleAdmin = user as Partial<Admin>;
+
+    if (possibleAdmin.role === "school_admin" && possibleAdmin.teachers?.[teacherUid]) {
+      updates[`users/${uid}/teachers/${teacherUid}`] = null;
+    }
+
+    if (classCode && possibleAdmin.assigned_class_codes?.includes(classCode)) {
+      updates[`users/${uid}/assigned_class_codes`] =
+        possibleAdmin.assigned_class_codes.filter((code) => code !== classCode);
+    }
+  }
+
+  for (const [studentUid, childIds] of matchingChildrenByStudentUid.entries()) {
+    const student = users[studentUid];
+
+    if (!student || !isStudentUser(student)) {
+      continue;
+    }
+
+    const existingChildIds = Object.keys(student.children || {});
+    const matchingExistingChildIds = existingChildIds.filter((childId) =>
+      childIds.has(childId)
+    );
+
+    if (matchingExistingChildIds.length === 0) {
+      continue;
+    }
+
+    if (matchingExistingChildIds.length >= existingChildIds.length) {
+      updates[`users/${studentUid}`] = null;
+      deletedStudentAccounts += 1;
+      continue;
+    }
+
+    for (const childId of matchingExistingChildIds) {
+      updates[`users/${studentUid}/children/${childId}`] = null;
+      deletedChildProfiles += 1;
+    }
+  }
+
+  await update(ref(db), updates);
+
+  return {
+    deletedTeacherUid: teacherUid,
+    deletedClassCode: classCode || undefined,
+    deletedStudentAccounts,
+    deletedChildProfiles,
+  };
 }
 
 // Delete a student (and all their data)
@@ -1163,6 +1376,12 @@ export async function createTeacherAccountForSchool(
   const db = getDatabase();
   const normalizedEmail = email.trim().toLowerCase();
   const normalizedCode = teacherCode.trim().toUpperCase();
+  const users = await fetchAllUsers();
+  const schoolAdmin = users[schoolAdminUid] as Admin | undefined;
+
+  if (!schoolAdmin || schoolAdmin.role !== "school_admin") {
+    throw new Error("School account not found");
+  }
 
   if (!TEACHER_CODE_PATTERN.test(normalizedCode) && !TEST_TEACHER_CODE_PATTERN.test(normalizedCode)) {
     throw new Error(TEACHER_CODE_REQUIREMENTS);
@@ -1214,11 +1433,14 @@ export async function createTeacherAccountForSchool(
     );
     const teacherUid = result.user.uid;
     const assignedAt = new Date().toISOString();
+    const schoolName = getAdminSchoolName(schoolAdmin);
 
     await update(ref(db), {
       [`users/${teacherUid}`]: {
         is_teacher: true,
         teacher_code: normalizedCode,
+        school_name: schoolName,
+        school_admin_uid: schoolAdminUid,
         sign_in_details: {
           device_id: "",
           device_type: "",
@@ -1264,11 +1486,7 @@ export async function createPendingReplacementTeacherAccount(
     throw new Error("School account not found");
   }
 
-  const schoolName =
-    schoolAdmin?.school_details?.school_name ||
-    schoolAdmin?.sign_in_details?.name ||
-    schoolAdmin?.name ||
-    "";
+  const schoolName = getAdminSchoolName(schoolAdmin);
   const provisioningApp = initializeApp(
     firebaseConfig,
     `replacement-teacher-provisioning-${Date.now()}`
@@ -1288,7 +1506,7 @@ export async function createPendingReplacementTeacherAccount(
       [`users/${teacherUid}`]: removeUndefinedValues({
         is_teacher: true,
         display_name: normalizedName,
-        display_school: schoolName || undefined,
+        school_name: schoolName || undefined,
         school_admin_uid: schoolAdminUid,
         teacher_status: CLASS_CODE_PENDING_STATUS,
         created_by: createdBy,
@@ -1395,23 +1613,62 @@ export async function addSchoolAdminRoleToTeacher(
 }
 
 export async function sendSchoolAdminPasswordResetEmail(
-  email: string
+  email: string,
+  continueUrl?: string
 ): Promise<void> {
   if (!auth) {
     throw new Error("Firebase auth not configured");
   }
 
-  await sendPasswordResetEmail(auth, email);
+  await sendPasswordResetEmailWithContinueUrlFallback(email, continueUrl);
 }
 
 export async function sendTeacherPasswordResetEmail(
-  email: string
+  email: string,
+  continueUrl?: string
 ): Promise<void> {
   if (!auth) {
     throw new Error("Firebase auth not configured");
   }
 
-  await sendPasswordResetEmail(auth, email);
+  await sendPasswordResetEmailWithContinueUrlFallback(email, continueUrl);
+}
+
+async function sendPasswordResetEmailWithContinueUrlFallback(
+  email: string,
+  continueUrl?: string
+) {
+  if (!auth) {
+    throw new Error("Firebase auth not configured");
+  }
+
+  if (!continueUrl) {
+    await sendPasswordResetEmail(auth, email);
+    return;
+  }
+
+  try {
+    await sendPasswordResetEmail(auth, email, {
+      url: continueUrl,
+      handleCodeInApp: false,
+    });
+  } catch (error) {
+    if (isUnauthorizedContinueUrlError(error)) {
+      await sendPasswordResetEmail(auth, email);
+      return;
+    }
+
+    throw error;
+  }
+}
+
+function isUnauthorizedContinueUrlError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "auth/unauthorized-continue-uri"
+  );
 }
 
 // Get teacher by UID

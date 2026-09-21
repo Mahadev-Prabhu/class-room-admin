@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { SchoolDetails } from "@/lib/types";
 import { LogOut } from "lucide-react";
+import { toAppPathForPath } from "@/lib/routes";
+import { useAppConfig } from "@/lib/use-app-config";
 
 const COUNTRIES = [
   "Afghanistan",
@@ -301,6 +303,8 @@ function formatPhoneNumber(country: string, value: string) {
 export default function SetupPage() {
   const { user, admin, completeAdminSetup, loading, logout } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const appConfig = useAppConfig();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [formData, setFormData] = useState<SchoolDetails>({
@@ -319,7 +323,7 @@ export default function SetupPage() {
     if (loading) return;
 
     if (!user && !admin) {
-      router.push("/login");
+      router.push(toAppPathForPath("/login", pathname));
       return;
     }
 
@@ -328,14 +332,14 @@ export default function SetupPage() {
     }
 
     if (admin?.role !== "school_admin") {
-      router.push("/admin/dashboard");
+      router.push(toAppPathForPath("/admin/dashboard", pathname));
       return;
     }
 
     if (admin.sign_in_details?.is_setup_complete) {
-      router.push("/admin/dashboard");
+      router.push(toAppPathForPath("/admin/dashboard", pathname));
     }
-  }, [user, admin, loading, router]);
+  }, [user, admin, loading, pathname, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -350,7 +354,7 @@ export default function SetupPage() {
     try {
       await completeAdminSetup(formData);
       toast.success("Setup completed successfully!");
-      router.push("/admin/dashboard");
+      router.push(toAppPathForPath("/admin/dashboard", pathname));
     } catch {
       toast.error("Failed to complete setup");
     } finally {
@@ -383,7 +387,7 @@ export default function SetupPage() {
 
     try {
       await logout();
-      router.push("/login");
+      router.push(toAppPathForPath("/login", pathname));
     } catch {
       toast.error("Failed to sign out");
     } finally {
@@ -395,8 +399,8 @@ export default function SetupPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-50 to-orange-100">
         <img
-          src="/logo.png"
-          alt="Early Learning Library"
+          src={appConfig.logoPath}
+          alt={appConfig.appName}
           className="w-20 h-20 rounded-2xl animate-pulse"
         />
       </div>
@@ -410,8 +414,8 @@ export default function SetupPage() {
           <CardHeader className="space-y-4 text-center">
             <div className="flex justify-center">
               <img
-                src="/logo.png"
-                alt="Early Learning Library"
+                src={appConfig.logoPath}
+                alt={appConfig.appName}
                 className="h-20 w-20 rounded-2xl object-cover"
               />
             </div>
@@ -423,7 +427,7 @@ export default function SetupPage() {
             </p>
             <Button
               type="button"
-              className="w-full bg-[#155C8A] text-white hover:bg-[#0F4D78]"
+              className="w-full bg-[var(--app-primary)] text-white hover:bg-[var(--app-primary-hover)]"
               onClick={handleSignOut}
               disabled={isSigningOut}
             >
@@ -439,8 +443,8 @@ export default function SetupPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-50 to-orange-100 p-4">
       <div className="w-full max-w-lg space-y-8">
-        <h1 className="text-center text-2xl font-bold text-red-600 md:text-3xl">
-          Welcome to the Early Learning Library Admin Portal!
+        <h1 className="text-center text-2xl font-bold text-[var(--app-primary)] md:text-3xl">
+          Welcome to the {appConfig.portalName}!
         </h1>
         <Card className="shadow-xl">
           <CardHeader className="space-y-1 text-center">
@@ -458,8 +462,8 @@ export default function SetupPage() {
             </div>
             <div className="flex justify-center mb-4">
               <img
-                src="/logo.png"
-                alt="Early Learning Library"
+                src={appConfig.logoPath}
+                alt={appConfig.appName}
                 className="w-20 h-20 rounded-2xl object-cover"
               />
             </div>
@@ -586,7 +590,7 @@ export default function SetupPage() {
 
               <Button
                 type="submit"
-                className="w-full mt-6 bg-[#155C8A] text-white hover:bg-[#0F4D78]"
+                className="w-full mt-6 bg-[var(--app-primary)] text-white hover:bg-[var(--app-primary-hover)]"
                 disabled={isSubmitting}
               >
                 {isSubmitting ? "Saving..." : "Complete Setup"}

@@ -9,9 +9,12 @@ import {
   sendPasswordResetEmail,
   onAuthStateChanged,
 } from "firebase/auth";
-import { ref, get, set, update } from "firebase/database";
+import { ref, get, onValue, set, update } from "firebase/database";
+import { usePathname } from "next/navigation";
+import { toast } from "sonner";
 import { auth, database } from "@/lib/firebase";
 import { Admin, SchoolDetails, SignInDetails } from "@/lib/types";
+import { getAppConfigByPath } from "@/lib/app-config";
 
 interface AuthContextType {
   user: User | null;
@@ -158,6 +161,8 @@ function getAuthErrorMessage(error: unknown) {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const appConfig = getAppConfigByPath(pathname);
   const [user, setUser] = useState<User | null>(null);
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [loading, setLoading] = useState(true);
@@ -228,6 +233,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!auth || !database || !user) {
+      return;
+    }
+
+    const currentAuth = auth;
+    const currentDatabase = database;
+    const userRef = ref(currentDatabase, `users/${user.uid}`);
+    let hasSignedOutForDeactivation = false;
+
+    const unsubscribe = onValue(userRef, async (snapshot) => {
+      if (!snapshot.exists()) {
+        if (!hasSignedOutForDeactivation) {
+          hasSignedOutForDeactivation = true;
+          const message =
+            "Your admin account is no longer available. Please contact support.";
+          setAdmin(null);
+          setError(message);
+          toast.error(message);
+          await signOut(currentAuth);
+        }
+        return;
+      }
+
+      const value = snapshot.val();
+      if (
+        !value?.role &&
+        !value?.roles?.includes("school_admin") &&
+        !value?.roles?.includes("super_admin")
+      ) {
+        return;
+      }
+
+      const adminData = normalizeAdmin(user.uid, value);
+
+      if (!adminData.sign_in_details?.is_active) {
+        if (!hasSignedOutForDeactivation) {
+          hasSignedOutForDeactivation = true;
+          const adminEmail =
+            adminData.sign_in_details?.email ||
+            adminData.sign_in_details?.sign_in_email ||
+            "";
+          const message =
+            "Your school admin account has been deactivated. You have been signed out. Please contact your Super Admin.";
+          setAdmin(null);
+          setError(message);
+          toast.error(message);
+          await set(
+            ref(currentDatabase, `users/${user.uid}/sign_in_details`),
+            createSignInDetails(adminEmail, false, adminData)
+          );
+          await signOut(currentAuth);
+        }
+        return;
+      }
+
+      setAdmin(adminData);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   const signIn = async (email: string, password: string) => {
     if (!auth || !database) throw new Error("Firebase not configured");
@@ -381,8 +448,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-50 to-orange-100 p-4">
         <div className="bg-white p-8 rounded-lg shadow-lg max-w-md text-center">
           <img
-            src="/logo.png"
-            alt="Smart Kidz Club"
+            src={appConfig.logoPath}
+            alt={appConfig.appName}
             className="w-20 h-20 mx-auto mb-4 rounded-2xl"
           />
           <h1 className="text-xl font-bold text-red-600 mb-4">Firebase Not Configured</h1>

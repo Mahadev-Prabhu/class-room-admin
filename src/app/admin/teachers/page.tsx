@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { ClearableSearchInput } from "@/components/admin/ClearableSearchInput";
 import { TruncatedText } from "@/components/admin/TruncatedText";
 import {
   ArrowRightLeft,
@@ -55,12 +56,15 @@ import {
   Mail,
   MoreHorizontal,
   Plus,
-  School,
   Share2,
   Trash2,
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+} from "firebase/auth";
 import {
   fetchAllAdmins,
   fetchAdminTeachers,
@@ -70,15 +74,16 @@ import {
   assignTeacherCodeToSchool,
   createPendingReplacementTeacherAccount,
   createTeacherAccountForSchool,
-  deletePendingTeacher,
+  deleteTeacherAccountCascade,
   sendTeacherPasswordResetEmail,
-  setTeacherSchool,
   validateTeacherCode,
   transferTeacherAssignment,
 } from "@/lib/firebase-service";
 import { Admin, AdminTeacher, ClassCode, TeacherListItem } from "@/lib/types";
 import { formatUsDate } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
+import { toAppPathForPath, toPublicAppUrlForPath } from "@/lib/routes";
+import { useAppConfig } from "@/lib/use-app-config";
 
 const getLocalDateValue = (date: Date) => {
   const year = date.getFullYear();
@@ -117,9 +122,11 @@ type SortField = "school" | "lastSignIn";
 
 export default function TeachersPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const schoolFilter = searchParams.get("school");
-  const { admin } = useAuth();
+  const { admin, user } = useAuth();
+  const appConfig = useAppConfig();
   const [teachers, setTeachers] = useState<TeacherListItem[]>([]);
   const [filteredTeachers, setFilteredTeachers] = useState<TeacherListItem[]>([]);
   const [schools, setSchools] = useState<Admin[]>([]);
@@ -129,10 +136,9 @@ export default function TeachersPage() {
   const [transferTeacher, setTransferTeacher] = useState<TeacherListItem | null>(null);
   const [targetTeacherUid, setTargetTeacherUid] = useState("");
   const [isTransferring, setIsTransferring] = useState(false);
-  const [setSchoolTeacher, setSetSchoolTeacher] = useState<TeacherListItem | null>(null);
-  const [targetSchoolUid, setTargetSchoolUid] = useState("");
-  const [isSettingSchool, setIsSettingSchool] = useState(false);
   const [deleteTeacher, setDeleteTeacher] = useState<TeacherListItem | null>(null);
+  const [passwordDeleteTeacher, setPasswordDeleteTeacher] = useState<TeacherListItem | null>(null);
+  const [deleteTeacherPassword, setDeleteTeacherPassword] = useState("");
   const [isDeletingTeacher, setIsDeletingTeacher] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState<TeacherListItem | null>(null);
   const [isSendingResetLink, setIsSendingResetLink] = useState(false);
@@ -212,10 +218,14 @@ export default function TeachersPage() {
     let filtered = [...teachers];
 
     if (admin?.role === "super_admin" && schoolFilter) {
+      const selectedSchool = schools.find((school) => school.uid === schoolFilter);
       const schoolTeacherUids = new Set(
-        classCodes
-          .filter((code) => code.school_admin_uid === schoolFilter && code.teacher_uid)
-          .map((code) => code.teacher_uid)
+        [
+          ...classCodes
+            .filter((code) => code.school_admin_uid === schoolFilter && code.teacher_uid)
+            .map((code) => code.teacher_uid),
+          ...Object.keys(selectedSchool?.teachers || {}),
+        ].filter((uid): uid is string => Boolean(uid))
       );
 
       filtered = filtered.filter((teacher) => schoolTeacherUids.has(teacher.uid));
@@ -234,10 +244,10 @@ export default function TeachersPage() {
     }
 
     setFilteredTeachers(filtered);
-  }, [admin?.role, classCodes, schoolFilter, searchQuery, teachers]);
+  }, [admin?.role, classCodes, schoolFilter, schools, searchQuery, teachers]);
 
   const handleViewStudents = (teacherUid: string) => {
-    router.push(`/admin/students?teacher=${teacherUid}`);
+    router.push(toAppPathForPath(`/admin/students?teacher=${teacherUid}`, pathname));
   };
 
   const canShareTeacherLogin = (teacher: TeacherListItem | null) =>
@@ -248,8 +258,10 @@ export default function TeachersPage() {
         teacher.status !== "replaced"
     );
 
-  const canDeleteTeacher = (teacher: TeacherListItem) =>
-    !teacher.teacherCode && teacher.studentCount === 0;
+  const isSuperAdmin =
+    admin?.role === "super_admin" || admin?.roles?.includes("super_admin");
+
+  const canDeleteTeacher = () => Boolean(isSuperAdmin);
 
   const canTransferTeacher = (teacher: TeacherListItem) => {
     const assignedCode = getAssignedCodeForTeacher(teacher.uid);
@@ -265,23 +277,14 @@ export default function TeachersPage() {
     return assignedCode.school_admin_uid === admin?.uid;
   };
 
-  const canSetSchool = (teacher: TeacherListItem) => {
-    if (admin?.role !== "super_admin" || !teacher.teacherCode) {
-      return false;
-    }
-
-    const code = getTeacherCodeRecord(teacher);
-
-    return Boolean(code?.teacher_uid && !code.school_admin_uid);
-  };
-
   const handleSendTeacherResetLink = async (teacher: TeacherListItem) => {
     if (!canShareTeacherLogin(teacher)) {
       toast.error("Transfer a class before sharing login details");
       return;
     }
 
-    if (!teacher.email || teacher.email === "Unknown") {
+    const normalizedEmail = teacher.email.trim().toLowerCase();
+    if (!normalizedEmail || normalizedEmail === "unknown" || normalizedEmail.includes("@") === false) {
       toast.error("Teacher email is not available");
       return;
     }
@@ -289,7 +292,8 @@ export default function TeachersPage() {
     setIsSendingResetLink(true);
 
     try {
-      await sendTeacherPasswordResetEmail(teacher.email);
+      const loginUrl = toPublicAppUrlForPath("/login", pathname);
+      await sendTeacherPasswordResetEmail(normalizedEmail, loginUrl);
       toast.success("Reset password link sent");
     } catch {
       toast.error("Failed to send password reset link");
@@ -305,10 +309,16 @@ export default function TeachersPage() {
     }
 
     const message = [
-      "Your Early Learning Library teacher account is ready.",
+      `Your ${appConfig.appName} teacher account is ready.`,
+      "",
       `Email: ${teacher.email}`,
       `Class Code: ${teacher.teacherCode}`,
-      "Please sign in to the app and complete your teacher profile. Use the reset password link if you need to set or reset your password.",
+      "",
+      "Download the app:",
+      `iOS: ${appConfig.iosAppUrl}`,
+      `Android: ${appConfig.androidAppUrl}`,
+      "",
+      "Please install the app, sign in with your email, and complete your teacher profile. Use the reset password link if you need to set or reset your password.",
     ].join("\n");
 
     try {
@@ -332,54 +342,81 @@ export default function TeachersPage() {
       return;
     }
 
-    if (!canDeleteTeacher(deleteTeacher)) {
-      toast.error("Only teachers without a class code and students can be deleted");
+    if (!canDeleteTeacher()) {
+      toast.error("Only Super Admin can delete teacher accounts");
+      return;
+    }
+
+    setPasswordDeleteTeacher(deleteTeacher);
+    setDeleteTeacher(null);
+  };
+
+  const closePasswordDeleteDialog = () => {
+    if (isDeletingTeacher) {
+      return;
+    }
+
+    setPasswordDeleteTeacher(null);
+    setDeleteTeacherPassword("");
+  };
+
+  const handleConfirmPasswordDeleteTeacher = async () => {
+    if (!admin || !user || !passwordDeleteTeacher) {
+      return;
+    }
+
+    if (!deleteTeacherPassword.trim()) {
+      toast.error("Enter Super Admin password to continue");
+      return;
+    }
+
+    if (!user.email) {
+      toast.error("Super Admin email not found. Please sign in again.");
       return;
     }
 
     setIsDeletingTeacher(true);
 
     try {
-      await deletePendingTeacher(deleteTeacher.uid, admin);
-      toast.success("Teacher deleted successfully");
-      setDeleteTeacher(null);
+      const credential = EmailAuthProvider.credential(
+        user.email,
+        deleteTeacherPassword
+      );
+      await reauthenticateWithCredential(user, credential);
 
-      if (selectedTeacher?.uid === deleteTeacher.uid) {
+      const result = await deleteTeacherAccountCascade(
+        passwordDeleteTeacher.uid,
+        admin
+      );
+      toast.success(
+        `Teacher deleted. Removed ${result.deletedStudentAccounts} student account(s), ${result.deletedChildProfiles} child profile(s)${
+          result.deletedClassCode ? `, and class code ${result.deletedClassCode}` : ""
+        }.`
+      );
+
+      if (selectedTeacher?.uid === passwordDeleteTeacher.uid) {
         setSelectedTeacher(null);
       }
 
+      setPasswordDeleteTeacher(null);
+      setDeleteTeacherPassword("");
       await loadTeachers();
     } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+
+      if (
+        message.includes("auth/invalid-credential") ||
+        message.includes("auth/wrong-password")
+      ) {
+        toast.error("Incorrect Super Admin password");
+        return;
+      }
+
       toast.error(
-        error instanceof Error ? error.message : "Failed to delete teacher"
+        message || "Failed to delete teacher"
       );
     } finally {
       setIsDeletingTeacher(false);
-    }
-  };
-
-  const closeSetSchoolDialog = () => {
-    setSetSchoolTeacher(null);
-    setTargetSchoolUid("");
-  };
-
-  const handleSetSchool = async () => {
-    if (!setSchoolTeacher || !targetSchoolUid) {
-      toast.error("Please select a school");
-      return;
-    }
-
-    setIsSettingSchool(true);
-
-    try {
-      await setTeacherSchool(setSchoolTeacher.uid, targetSchoolUid);
-      toast.success("School set successfully");
-      closeSetSchoolDialog();
-      await loadTeachers();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to set school");
-    } finally {
-      setIsSettingSchool(false);
     }
   };
 
@@ -397,6 +434,14 @@ export default function TeachersPage() {
         code.teacher_uid === teacher.uid ||
         code.code === teacher.teacherCode
     );
+  };
+
+  const getStudentCountLabel = (teacher: TeacherListItem) => {
+    const studentLimit = getTeacherCodeRecord(teacher)?.student_limit;
+
+    return studentLimit
+      ? `${teacher.studentCount}/${studentLimit} Students`
+      : `${teacher.studentCount} Students`;
   };
 
   const getTransferTargets = () => {
@@ -942,13 +987,12 @@ export default function TeachersPage() {
                 {filteredTeachers.length} teacher{filteredTeachers.length !== 1 ? "s" : ""} found
               </CardDescription>
             </div>
-            <div className="w-72">
-              <Input
-                placeholder="Search by name, email, code..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
+            <ClearableSearchInput
+              placeholder="Search by name, email, code..."
+              value={searchQuery}
+              onChange={setSearchQuery}
+              className="w-72"
+            />
           </div>
         </CardHeader>
         <CardContent>
@@ -1021,11 +1065,11 @@ export default function TeachersPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+                          className="w-[132px] gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
                           onClick={() => handleViewStudents(teacher.uid)}
                         >
                           <Users className="h-3.5 w-3.5" />
-                          {teacher.studentCount} students
+                          {getStudentCountLabel(teacher)}
                         </Button>
                       </TableCell>
                       <TableCell className="text-center">
@@ -1068,13 +1112,7 @@ export default function TeachersPage() {
                                 Transfer Class
                               </DropdownMenuItem>
                             )}
-                            {canSetSchool(teacher) && (
-                              <DropdownMenuItem onClick={() => setSetSchoolTeacher(teacher)}>
-                                <School className="h-4 w-4" />
-                                Set School
-                              </DropdownMenuItem>
-                            )}
-                            {canDeleteTeacher(teacher) && (
+                            {canDeleteTeacher() && (
                               <DropdownMenuItem
                                 variant="destructive"
                                 onClick={() => setDeleteTeacher(teacher)}
@@ -1083,7 +1121,7 @@ export default function TeachersPage() {
                                 Delete Teacher
                               </DropdownMenuItem>
                             )}
-                            {!canTransferTeacher(teacher) && !canSetSchool(teacher) && !canDeleteTeacher(teacher) && (
+                            {!canTransferTeacher(teacher) && !canDeleteTeacher() && (
                               <DropdownMenuItem disabled>
                                 No actions available
                               </DropdownMenuItem>
@@ -1666,74 +1704,6 @@ export default function TeachersPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={!!setSchoolTeacher}
-        onOpenChange={(open) => {
-          if (!open) {
-            closeSetSchoolDialog();
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Set Teacher School</DialogTitle>
-            <DialogDescription>
-              Select the school for {setSchoolTeacher?.name}. This will connect
-              the class code to the school and update the teacher&apos;s school
-              name.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Class Code</Label>
-              <div>
-                <Badge variant="secondary" className="font-mono">
-                  {setSchoolTeacher?.teacherCode || "-"}
-                </Badge>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="targetSchool">School</Label>
-              <Select value={targetSchoolUid} onValueChange={setTargetSchoolUid}>
-                <SelectTrigger id="targetSchool">
-                  <SelectValue placeholder="Select school" />
-                </SelectTrigger>
-                <SelectContent>
-                  {schools.map((school) => (
-                    <SelectItem key={school.uid} value={school.uid}>
-                      {school.school_details?.school_name ||
-                        school.sign_in_details?.name ||
-                        school.name ||
-                        school.email}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {schools.length === 0 && (
-                <p className="text-sm text-muted-foreground">
-                  No completed school accounts found.
-                </p>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={closeSetSchoolDialog}
-              disabled={isSettingSchool}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSetSchool}
-              disabled={isSettingSchool || !targetSchoolUid}
-            >
-              {isSettingSchool ? "Setting..." : "Set School"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <AlertDialog
         open={!!deleteTeacher}
         onOpenChange={(open) => {
@@ -1746,9 +1716,13 @@ export default function TeachersPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete teacher?</AlertDialogTitle>
             <AlertDialogDescription>
-              Delete {deleteTeacher?.name || "this teacher"} from the admin
-              portal? This is allowed only because the teacher has no active
-              class code and no students. The database record will be removed.
+              Delete {deleteTeacher?.name || "this teacher"} and connected
+              data? This will delete the teacher account, connected class code,
+              teacher-student links, and connected student data. If a student
+              account has one child, the whole student account will be deleted.
+              If it has multiple children, only the child profile connected to
+              this teacher will be deleted. You will be asked for the Super
+              Admin password before deletion.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1768,6 +1742,53 @@ export default function TeachersPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={!!passwordDeleteTeacher}
+        onOpenChange={(open) => {
+          if (!open) {
+            closePasswordDeleteDialog();
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Super Admin Password</DialogTitle>
+            <DialogDescription>
+              Enter your Super Admin password to permanently delete{" "}
+              {passwordDeleteTeacher?.name || "this teacher"} and the connected
+              class and student data.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="delete-teacher-password">Password</Label>
+            <Input
+              id="delete-teacher-password"
+              type="password"
+              value={deleteTeacherPassword}
+              onChange={(event) => setDeleteTeacherPassword(event.target.value)}
+              disabled={isDeletingTeacher}
+              autoComplete="current-password"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={closePasswordDeleteDialog}
+              disabled={isDeletingTeacher}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-red-600 text-white hover:bg-red-700"
+              onClick={handleConfirmPasswordDeleteTeacher}
+              disabled={isDeletingTeacher || !deleteTeacherPassword.trim()}
+            >
+              {isDeletingTeacher ? "Deleting..." : "Delete Teacher"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

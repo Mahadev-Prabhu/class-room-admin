@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
+import { toAppPathForPath } from "@/lib/routes";
+import { useAppConfig } from "@/lib/use-app-config";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -18,6 +20,8 @@ export default function LoginPage() {
   const logoTapCount = useRef(0);
   const { signIn, clearError } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const appConfig = useAppConfig();
 
   const handleLogoTap = () => {
     if (showSuperAdminSignUp) return;
@@ -37,7 +41,7 @@ export default function LoginPage() {
     try {
       await signIn(email, password);
       toast.success("Signed in successfully!");
-      router.push("/admin/dashboard");
+      router.push(toAppPathForPath("/admin/dashboard", pathname));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to sign in");
     } finally {
@@ -53,18 +57,18 @@ export default function LoginPage() {
             type="button"
             onClick={handleLogoTap}
             className="rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            aria-label="Smart Kidz Club logo"
+            aria-label={`${appConfig.appName} logo`}
           >
             <img
-              src="/logo.png"
-              alt="Smart Kidz Club"
+              src={appConfig.logoPath}
+              alt={appConfig.appName}
               className="w-20 h-20 rounded-2xl object-cover"
             />
           </button>
         </div>
         <CardTitle className="text-2xl font-bold">Welcome Back</CardTitle>
         <CardDescription>
-          Sign in to Early Learning Library Admin Portal
+          Sign in to {appConfig.portalName}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -94,8 +98,8 @@ export default function LoginPage() {
             />
           </div>
           <Button
-            type="submit"
-            className="w-full bg-[#155C8A] text-white hover:bg-[#0F4D78]"
+          type="submit"
+            className="w-full bg-[var(--app-primary)] text-white hover:bg-[var(--app-primary-hover)]"
             disabled={isLoading}
           >
             {isLoading ? "Signing in..." : "Sign In"}
@@ -104,15 +108,15 @@ export default function LoginPage() {
       </CardContent>
       <CardFooter className="flex flex-col space-y-2">
         <Link
-          href="/forgot-password"
-          className="text-sm text-blue-600 hover:underline"
+          href={toAppPathForPath("/forgot-password", pathname)}
+          className="text-sm text-primary hover:underline"
         >
           Reset password
         </Link>
         {showSuperAdminSignUp && (
           <div className="text-sm text-muted-foreground">
             Need a super admin account?{" "}
-            <Link href="/signup" className="text-blue-600 hover:underline">
+            <Link href={toAppPathForPath("/signup", pathname)} className="text-primary hover:underline">
               Sign up
             </Link>
           </div>

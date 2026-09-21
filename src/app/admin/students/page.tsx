@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Table,
@@ -41,6 +40,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { ClearableSearchInput } from "@/components/admin/ClearableSearchInput";
 import { TruncatedText } from "@/components/admin/TruncatedText";
 import { ArrowUpDown, Info } from "lucide-react";
 import { toast } from "sonner";
@@ -267,6 +267,11 @@ export default function StudentsPage() {
   };
 
   const handleMoveStudent = async () => {
+    if (!admin) {
+      toast.error("Admin account not found");
+      return;
+    }
+
     if (!moveStudent || !newTeacherUid) {
       toast.error("Please select a teacher");
       return;
@@ -317,7 +322,8 @@ export default function StudentsPage() {
         moveStudent.uid,
         selectedChildIds,
         selectedTeacherData.teacherCode,
-        selectedTeacherData.uid
+        selectedTeacherData.uid,
+        admin
       );
 
       toast.success(
@@ -352,6 +358,14 @@ export default function StudentsPage() {
     return classCodes.find((code) => code.teacher_uid === teacherUid);
   };
 
+  const getClassCodeForChild = (child: StudentListItem["children"][number]) => {
+    return classCodes.find(
+      (code) =>
+        code.code === child.teacherCode ||
+        (child.teacherUid && code.teacher_uid === child.teacherUid)
+    );
+  };
+
   const isClassCodeExpired = (classCode?: ClassCode) => {
     return !!classCode?.expiration_date && classCode.expiration_date <= getLocalDateValue();
   };
@@ -367,41 +381,70 @@ export default function StudentsPage() {
     return Math.max(classCode.student_limit - teacher.studentCount, 0);
   };
 
-  const getMoveTargetTeachers = () => {
-    return teachers.filter((teacher) => {
-      if (!moveStudent) {
-        return false;
-      }
+  const moveTargetTeachers = useMemo(() => {
+    if (!moveStudent) {
+      return [];
+    }
 
-      const selectedChildren =
-        selectedChildIds.length > 0
-          ? moveStudent.children.filter((child) => selectedChildIds.includes(child.id))
-          : moveStudent.children;
+    const selectedChildren =
+      selectedChildIds.length > 0
+        ? moveStudent.children.filter((child) => selectedChildIds.includes(child.id))
+        : moveStudent.children;
+    const selectedSchoolUids = Array.from(
+      new Set(
+        selectedChildren
+          .map((child) =>
+            classCodes.find(
+              (code) =>
+                code.code === child.teacherCode ||
+                (child.teacherUid && code.teacher_uid === child.teacherUid)
+            )?.school_admin_uid
+          )
+          .filter((uid): uid is string => Boolean(uid))
+      )
+    );
+    const selectedSchoolUid =
+      selectedSchoolUids.length === 1 ? selectedSchoolUids[0] : null;
+
+    return teachers.filter((teacher) => {
       const isCurrentTeacherForAllSelected = selectedChildren.every(
         (child) =>
           child.teacherUid === teacher.uid || child.teacherCode === teacher.teacherCode
       );
-      const classCode = getClassCodeForTeacher(teacher.uid);
-      const availableSeats = getAvailableSeats(teacher.uid);
+      const classCode = classCodes.find((code) => code.teacher_uid === teacher.uid);
+      const availableSeats =
+        classCode?.student_limit === undefined
+          ? null
+          : Math.max(classCode.student_limit - teacher.studentCount, 0);
 
       return (
         !isCurrentTeacherForAllSelected &&
         !!classCode &&
-        !isClassCodeExpired(classCode) &&
+        !!selectedSchoolUid &&
+        classCode.school_admin_uid === selectedSchoolUid &&
+        !(classCode.expiration_date && classCode.expiration_date <= getLocalDateValue()) &&
         (availableSeats === null || availableSeats > 0)
       );
     });
-  };
+  }, [classCodes, moveStudent, selectedChildIds, teachers]);
 
   const canMoveStudent = (student: StudentListItem) => {
     return teachers.some((teacher) =>
       student.children.some(
-        (child) =>
-          teacher.uid !== child.teacherUid &&
-          teacher.teacherCode !== child.teacherCode &&
-          !!getClassCodeForTeacher(teacher.uid) &&
-          !isClassCodeExpired(getClassCodeForTeacher(teacher.uid)) &&
-          (getAvailableSeats(teacher.uid) === null || getAvailableSeats(teacher.uid)! > 0)
+        (child) => {
+          const targetClassCode = getClassCodeForTeacher(teacher.uid);
+          const currentClassCode = getClassCodeForChild(child);
+
+          return (
+            teacher.uid !== child.teacherUid &&
+            teacher.teacherCode !== child.teacherCode &&
+            !!targetClassCode &&
+            !!currentClassCode?.school_admin_uid &&
+            targetClassCode.school_admin_uid === currentClassCode.school_admin_uid &&
+            !isClassCodeExpired(targetClassCode) &&
+            (getAvailableSeats(teacher.uid) === null || getAvailableSeats(teacher.uid)! > 0)
+          );
+        }
       )
     );
   };
@@ -413,6 +456,16 @@ export default function StudentsPage() {
         : [...current, childId]
     );
   };
+
+  useEffect(() => {
+    if (!newTeacherUid) {
+      return;
+    }
+
+    if (!moveTargetTeachers.some((teacher) => teacher.uid === newTeacherUid)) {
+      setNewTeacherUid("");
+    }
+  }, [moveTargetTeachers, newTeacherUid]);
 
   const activeTeacherOptions = teachers.filter(
     (teacher) => !isClassCodePendingTeacher(teacher)
@@ -453,10 +506,10 @@ export default function StudentsPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <Input
+              <ClearableSearchInput
                 placeholder="Search by email or child name..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={setSearchQuery}
                 className="w-[250px]"
               />
             </div>
@@ -819,7 +872,7 @@ export default function StudentsPage() {
                   <SelectValue placeholder="Select a teacher" />
                 </SelectTrigger>
                 <SelectContent>
-                  {getMoveTargetTeachers().map((teacher) => {
+                  {moveTargetTeachers.map((teacher) => {
                     const seats = getAvailableSeats(teacher.uid);
 
                     return (
@@ -834,7 +887,7 @@ export default function StudentsPage() {
                 </SelectContent>
               </Select>
             </div>
-            {getMoveTargetTeachers().length === 0 && (
+            {moveTargetTeachers.length === 0 && (
               <p className="text-sm text-muted-foreground">
                 No eligible teachers found. Teacher code must be active and have
                 enough student limit.

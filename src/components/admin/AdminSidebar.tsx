@@ -24,6 +24,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { formatDisplayName } from "@/lib/utils";
+import { getAppConfigByPath } from "@/lib/app-config";
+import { internalAdminPathFromPublic, toAppPathForPath } from "@/lib/routes";
 
 const mainNavItems = [
   {
@@ -160,6 +162,8 @@ const settingsNavItems = [
 
 export function AdminSidebar() {
   const pathname = usePathname();
+  const internalPathname = internalAdminPathFromPublic(pathname);
+  const appConfig = getAppConfigByPath(pathname);
   const { admin } = useAuth();
   const adminName = formatDisplayName(admin?.sign_in_details?.name) || "A";
   const adminEmail = admin?.sign_in_details?.email || admin?.sign_in_details?.sign_in_email || "";
@@ -182,12 +186,12 @@ export function AdminSidebar() {
       <SidebarHeader className="border-b border-sidebar-border">
         <div className="flex items-center gap-3 px-2 py-3">
           <img
-            src="/logo.png"
-            alt="Smart Kidz Club"
+            src={appConfig.logoPath}
+            alt={appConfig.appName}
             className="w-10 h-10 rounded-xl object-cover"
           />
           <div className="flex flex-col">
-            <span className="font-semibold text-sm">Smart Kidz Club</span>
+            <span className="font-semibold text-sm">{appConfig.appName}</span>
             <span className="text-xs text-muted-foreground">
               {admin?.role === "super_admin" ? "Super Admin Portal" : "School Admin Portal"}
             </span>
@@ -202,8 +206,8 @@ export function AdminSidebar() {
             <SidebarMenu>
               {managementNavItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild isActive={pathname === item.href}>
-                    <Link href={item.href}>
+                  <SidebarMenuButton asChild isActive={internalPathname === item.href}>
+                    <Link href={toAppPathForPath(item.href, pathname)}>
                       {item.icon}
                       <span>{item.title}</span>
                     </Link>
@@ -220,8 +224,8 @@ export function AdminSidebar() {
             <SidebarMenu>
               {settingsNavItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild isActive={pathname === item.href}>
-                    <Link href={item.href}>
+                  <SidebarMenuButton asChild isActive={internalPathname === item.href}>
+                    <Link href={toAppPathForPath(item.href, pathname)}>
                       {item.icon}
                       <span>{item.title}</span>
                     </Link>
@@ -261,7 +265,7 @@ export function AdminSidebar() {
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link href="/admin/settings">Settings</Link>
+                  <Link href={toAppPathForPath("/admin/settings", pathname)}>Settings</Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

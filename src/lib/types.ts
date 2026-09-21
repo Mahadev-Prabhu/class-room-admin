@@ -50,6 +50,7 @@ export interface TeacherUser {
   is_active?: boolean;
   display_name?: string;
   display_school?: string;
+  school_name?: string;
   school_admin_uid?: string;
   role?: AdminRole;
   roles?: AccountRole[];

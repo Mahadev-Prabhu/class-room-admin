@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchDashboardStats } from "@/lib/firebase-service";
 import { DashboardStats } from "@/lib/types";
-import { formatDisplayName } from "@/lib/utils";
+import { cn, formatDisplayName } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
+import { toAppPathForPath } from "@/lib/routes";
 
 export default function DashboardPage() {
+  const router = useRouter();
+  const pathname = usePathname();
   const { admin } = useAuth();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,6 +56,7 @@ export default function DashboardPage() {
         </svg>
       ),
       bgColor: "bg-blue-50",
+      href: "/admin/teachers",
     },
     {
       title: "Total Students",
@@ -75,6 +80,29 @@ export default function DashboardPage() {
         </svg>
       ),
       bgColor: "bg-green-50",
+      href: "/admin/students",
+    },
+    {
+      title: "Class Codes",
+      value: stats?.classCodes || 0,
+      description: "Managed class codes",
+      icon: (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="w-5 h-5 text-pink-600"
+        >
+          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+          <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
+        </svg>
+      ),
+      bgColor: "bg-pink-50",
+      href: admin?.role === "super_admin" ? "/admin/class-codes" : undefined,
     },
     {
       title: "Children Profiles",
@@ -139,27 +167,6 @@ export default function DashboardPage() {
       ),
       bgColor: "bg-teal-50",
     },
-    {
-      title: "Class Codes",
-      value: stats?.classCodes || 0,
-      description: "Managed class codes",
-      icon: (
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="w-5 h-5 text-pink-600"
-        >
-          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-          <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
-        </svg>
-      ),
-      bgColor: "bg-pink-50",
-    },
   ];
 
   return (
@@ -198,7 +205,26 @@ export default function DashboardPage() {
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {statCards.map((stat) => (
-          <Card key={stat.title}>
+          <Card
+            key={stat.title}
+            className={cn(
+              stat.href &&
+                "cursor-pointer transition-colors hover:border-primary/40 hover:bg-muted/20"
+            )}
+            role={stat.href ? "button" : undefined}
+            tabIndex={stat.href ? 0 : undefined}
+            onClick={() => {
+              if (stat.href) {
+                router.push(toAppPathForPath(stat.href, pathname));
+              }
+            }}
+            onKeyDown={(event) => {
+              if (stat.href && (event.key === "Enter" || event.key === " ")) {
+                event.preventDefault();
+                router.push(toAppPathForPath(stat.href, pathname));
+              }
+            }}
+          >
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 {stat.title}

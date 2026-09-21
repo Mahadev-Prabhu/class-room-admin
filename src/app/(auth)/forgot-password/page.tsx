@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -8,12 +9,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
+import { toAppPathForPath } from "@/lib/routes";
+import { useAppConfig } from "@/lib/use-app-config";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const { resetPassword, error, clearError } = useAuth();
+  const pathname = usePathname();
+  const appConfig = useAppConfig();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,7 +74,7 @@ export default function ForgotPasswordPage() {
           </Button>
         </CardContent>
         <CardFooter className="flex justify-center">
-          <Link href="/login" className="text-sm text-blue-600 hover:underline">
+          <Link href={toAppPathForPath("/login", pathname)} className="text-sm text-primary hover:underline">
             Back to sign in
           </Link>
         </CardFooter>
@@ -82,8 +87,8 @@ export default function ForgotPasswordPage() {
       <CardHeader className="space-y-1 text-center">
         <div className="flex justify-center mb-4">
           <img
-            src="/logo.png"
-            alt="Smart Kidz Club"
+            src={appConfig.logoPath}
+            alt={appConfig.appName}
             className="w-20 h-20 rounded-2xl object-cover"
           />
         </div>
@@ -108,7 +113,7 @@ export default function ForgotPasswordPage() {
           </div>
           <Button
             type="submit"
-            className="w-full bg-[#155C8A] text-white hover:bg-[#0F4D78]"
+            className="w-full bg-[var(--app-primary)] text-white hover:bg-[var(--app-primary-hover)]"
             disabled={isLoading}
           >
             {isLoading ? "Sending..." : "Send Reset Link"}
@@ -116,7 +121,7 @@ export default function ForgotPasswordPage() {
         </form>
       </CardContent>
       <CardFooter className="flex justify-center">
-        <Link href="/login" className="text-sm text-blue-600 hover:underline">
+        <Link href={toAppPathForPath("/login", pathname)} className="text-sm text-primary hover:underline">
           Back to sign in
         </Link>
       </CardFooter>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { toast } from "sonner";
+import { toAppPathForPath } from "@/lib/routes";
+import { useAppConfig } from "@/lib/use-app-config";
 
 export default function SignUpPage() {
   const [name, setName] = useState("");
@@ -25,6 +27,8 @@ export default function SignUpPage() {
   const [isLoading, setIsLoading] = useState(false);
   const { signUpSuperAdmin, clearError } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const appConfig = useAppConfig();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,7 +49,7 @@ export default function SignUpPage() {
     try {
       await signUpSuperAdmin(email, password, name);
       toast.success("Super admin account created successfully!");
-      router.push("/admin/dashboard");
+      router.push(toAppPathForPath("/admin/dashboard", pathname));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create account");
     } finally {
@@ -58,8 +62,8 @@ export default function SignUpPage() {
       <CardHeader className="space-y-1 text-center">
         <div className="mb-4 flex justify-center">
           <img
-            src="/logo.png"
-            alt="Smart Kidz Club"
+            src={appConfig.logoPath}
+            alt={appConfig.appName}
             className="h-20 w-20 rounded-2xl object-cover"
           />
         </div>
@@ -67,7 +71,7 @@ export default function SignUpPage() {
           Create Super Admin Account
         </CardTitle>
         <CardDescription>
-          Sign up to manage the Early Learning Library admin system
+          Sign up to manage the {appConfig.portalName}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -121,7 +125,7 @@ export default function SignUpPage() {
           </div>
           <Button
             type="submit"
-            className="w-full bg-[#155C8A] text-white hover:bg-[#0F4D78]"
+            className="w-full bg-[var(--app-primary)] text-white hover:bg-[var(--app-primary-hover)]"
             disabled={isLoading}
           >
             {isLoading ? "Creating account..." : "Create Super Admin Account"}
@@ -129,7 +133,7 @@ export default function SignUpPage() {
         </form>
       </CardContent>
       <CardFooter className="flex justify-center">
-        <Link href="/login" className="text-sm text-blue-600 hover:underline">
+        <Link href={toAppPathForPath("/login", pathname)} className="text-sm text-primary hover:underline">
           Back to sign in
         </Link>
       </CardFooter>

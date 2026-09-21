@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { ClearableSearchInput } from "@/components/admin/ClearableSearchInput";
 import { TruncatedText } from "@/components/admin/TruncatedText";
 import { Copy, Eye, EyeOff, Info, Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -46,9 +47,13 @@ import {
 } from "@/lib/firebase-service";
 import { Admin } from "@/lib/types";
 import { useAuth } from "@/contexts/AuthContext";
+import { toAppPathForPath, toPublicAppUrlForPath } from "@/lib/routes";
+import { useAppConfig } from "@/lib/use-app-config";
 
 export default function SchoolsPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const appConfig = useAppConfig();
   const { admin, loading: authLoading } = useAuth();
   const [schools, setSchools] = useState<Admin[]>([]);
   const [loading, setLoading] = useState(true);
@@ -70,14 +75,15 @@ export default function SchoolsPage() {
     password: string;
   } | null>(null);
   const [showCreatedPassword, setShowCreatedPassword] = useState(false);
+  const [resetEmailSendingTo, setResetEmailSendingTo] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
 
     if (admin?.role !== "super_admin") {
-      router.push("/admin/dashboard");
+      router.push(toAppPathForPath("/admin/dashboard", pathname));
     }
-  }, [admin, authLoading, router]);
+  }, [admin, authLoading, pathname, router]);
 
   const loadSchools = useCallback(async () => {
     if (!admin || admin.role !== "super_admin") return;
@@ -194,18 +200,38 @@ export default function SchoolsPage() {
   const handleCopyCredentials = async () => {
     if (!createdCredentials) return;
 
+    const loginUrl = toPublicAppUrlForPath("/login", pathname);
+
     await navigator.clipboard.writeText(
-      `Email: ${createdCredentials.email}\nInitial Password: ${createdCredentials.password}`
+      [
+        `Your ${appConfig.appName} admin account is ready.`,
+        "",
+        `Login link: ${loginUrl}`,
+        `Email: ${createdCredentials.email}`,
+        `Initial Password: ${createdCredentials.password}`,
+        "",
+        "Please sign in and complete your school setup. You can reset your password from the sign-in page if needed.",
+      ].join("\n")
     );
     toast.success("Credentials copied");
   };
 
   const handleSendResetLink = async (email: string) => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || normalizedEmail === "-" || normalizedEmail.includes("@") === false) {
+      toast.error("School admin email is missing");
+      return;
+    }
+
     try {
-      await sendSchoolAdminPasswordResetEmail(email);
+      setResetEmailSendingTo(normalizedEmail);
+      const loginUrl = toPublicAppUrlForPath("/login", pathname);
+      await sendSchoolAdminPasswordResetEmail(normalizedEmail, loginUrl);
       toast.success("Password reset link sent");
     } catch {
       toast.error("Failed to send password reset link");
+    } finally {
+      setResetEmailSendingTo(null);
     }
   };
 
@@ -299,7 +325,7 @@ export default function SchoolsPage() {
           </p>
         </div>
         <Button
-          className="bg-[#155C8A] text-white hover:bg-[#0F4D78]"
+          className="bg-[var(--app-primary)] text-white hover:bg-[var(--app-primary-hover)]"
           onClick={() => setIsCreateDialogOpen(true)}
         >
           <Plus className="h-4 w-4" />
@@ -316,13 +342,12 @@ export default function SchoolsPage() {
                 {filteredSchools.length} school{filteredSchools.length !== 1 ? "s" : ""} found
               </CardDescription>
             </div>
-            <div className="w-72">
-              <Input
-                placeholder="Search by school, admin, email..."
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-              />
-            </div>
+            <ClearableSearchInput
+              placeholder="Search by school, admin, email..."
+              value={searchQuery}
+              onChange={setSearchQuery}
+              className="w-72"
+            />
           </div>
         </CardHeader>
         <CardContent>
@@ -375,7 +400,7 @@ export default function SchoolsPage() {
                         <Button
                           variant="outline"
                           size="icon"
-                          className="h-8 w-8 border-[#155C8A] text-[#155C8A] hover:bg-[#155C8A] hover:text-white"
+                          className="h-8 w-8 border-primary text-primary hover:bg-primary hover:text-primary-foreground"
                           aria-label={`View details for ${viewData.schoolName}`}
                           onClick={() => setSelectedSchool(school)}
                         >
@@ -518,10 +543,10 @@ export default function SchoolsPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="border-[#155C8A] text-[#155C8A] hover:bg-[#155C8A] hover:text-white"
+                          className="border-primary text-primary hover:bg-primary hover:text-primary-foreground"
                           onClick={() => {
                             setSelectedSchool(null);
-                            router.push(`/admin/teachers?school=${selectedSchool.uid}`);
+                            router.push(toAppPathForPath(`/admin/teachers?school=${selectedSchool.uid}`, pathname));
                           }}
                         >
                           View Teachers
@@ -529,10 +554,10 @@ export default function SchoolsPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="border-[#155C8A] text-[#155C8A] hover:bg-[#155C8A] hover:text-white"
+                          className="border-primary text-primary hover:bg-primary hover:text-primary-foreground"
                           onClick={() => {
                             setSelectedSchool(null);
-                            router.push(`/admin/students?school=${selectedSchool.uid}`);
+                            router.push(toAppPathForPath(`/admin/students?school=${selectedSchool.uid}`, pathname));
                           }}
                         >
                           View Students
@@ -540,10 +565,13 @@ export default function SchoolsPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="border-[#155C8A] text-[#155C8A] hover:bg-[#155C8A] hover:text-white"
+                          className="border-primary text-primary hover:bg-primary hover:text-primary-foreground"
                           onClick={() => handleSendResetLink(viewData.email)}
+                          disabled={resetEmailSendingTo === viewData.email.trim().toLowerCase()}
                         >
-                          Send reset password link
+                          {resetEmailSendingTo === viewData.email.trim().toLowerCase()
+                            ? "Sending..."
+                            : "Send reset password link"}
                         </Button>
                       </div>
                     </div>
@@ -579,7 +607,7 @@ export default function SchoolsPage() {
                 variant="ghost"
                 className={
                   accountMode === "new"
-                    ? "bg-[#155C8A] text-white hover:bg-[#0F4D78] hover:text-white"
+                    ? "bg-[var(--app-primary)] text-white hover:bg-[var(--app-primary-hover)] hover:text-white"
                     : "hover:bg-white"
                 }
                 onClick={() => setAccountMode("new")}
@@ -592,7 +620,7 @@ export default function SchoolsPage() {
                 variant="ghost"
                 className={
                   accountMode === "existing_teacher"
-                    ? "bg-[#155C8A] text-white hover:bg-[#0F4D78] hover:text-white"
+                    ? "bg-[var(--app-primary)] text-white hover:bg-[var(--app-primary-hover)] hover:text-white"
                     : "hover:bg-white"
                 }
                 onClick={() => setAccountMode("existing_teacher")}
@@ -671,7 +699,7 @@ export default function SchoolsPage() {
               </Button>
               <Button
                 type="submit"
-                className="bg-[#155C8A] text-white hover:bg-[#0F4D78]"
+                className="bg-[var(--app-primary)] text-white hover:bg-[var(--app-primary-hover)]"
                 disabled={isCreatingSchool}
               >
                 {isCreatingSchool

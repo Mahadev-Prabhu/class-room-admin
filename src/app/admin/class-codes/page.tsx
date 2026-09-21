@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +41,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { ClearableSearchInput } from "@/components/admin/ClearableSearchInput";
 import { TruncatedText } from "@/components/admin/TruncatedText";
 import { ArrowUpDown, Loader2, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -58,6 +59,7 @@ import {
 import { AdminTeacher, ClassCode, TeacherListItem } from "@/lib/types";
 import { formatUsDate } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
+import { toAppPathForPath } from "@/lib/routes";
 
 const getLocalDateValue = (date: Date) => {
   const year = date.getFullYear();
@@ -141,6 +143,7 @@ const STATUS_SORT_ORDER = {
 
 export default function ClassCodesPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const { admin } = useAuth();
   const [classCodes, setClassCodes] = useState<ClassCode[]>([]);
   const [teachers, setTeachers] = useState<TeacherListItem[]>([]);
@@ -207,13 +210,17 @@ export default function ClassCodesPage() {
   useEffect(() => {
     if (admin) {
       if (admin.role !== "super_admin") {
-        router.push("/admin/teachers");
+        router.push(toAppPathForPath("/admin/teachers", pathname));
         return;
       }
 
       loadData();
     }
-  }, [admin, loadData, router]);
+  }, [admin, loadData, pathname, router]);
+
+  if (!admin || admin.role !== "super_admin") {
+    return null;
+  }
 
   const handleValidateCode = async () => {
     if (!newCode.trim()) {
@@ -760,10 +767,10 @@ export default function ClassCodesPage() {
                 </CardDescription>
               </div>
               <div className="flex flex-col gap-2 md:flex-row md:items-center">
-                <Input
+                <ClearableSearchInput
                   placeholder="Search class codes..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={setSearchQuery}
                   className="w-full md:w-[280px]"
                 />
               </div>
@@ -783,114 +790,118 @@ export default function ClassCodesPage() {
                 </p>
               </div>
             ) : (
-              <Table className="table-fixed">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[12%] text-center">Code</TableHead>
-                    <TableHead className="w-[17%] text-center">Used By</TableHead>
-                    <TableHead className="w-[21%] text-center">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="mx-auto gap-1.5 px-2"
-                        onClick={() => handleSort("school")}
-                        aria-label={`${getSortLabel("school")} by assigned school`}
-                      >
-                        Assigned School
-                        <ArrowUpDown className="h-3.5 w-3.5" />
-                      </Button>
-                    </TableHead>
-                    <TableHead className="w-[12%] text-center">Student Limit</TableHead>
-                    <TableHead className="w-[15%] text-center">Expiry Date</TableHead>
-                    <TableHead className="w-[13%] text-center">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="mx-auto gap-1.5 px-2"
-                        onClick={() => handleSort("status")}
-                        aria-label={`${getSortLabel("status")} by status`}
-                      >
-                        Status
-                        <ArrowUpDown className="h-3.5 w-3.5" />
-                      </Button>
-                    </TableHead>
-                    <TableHead className="w-[10%] text-center">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sortedClassCodes.map((code) => {
-                    const status = getClassCodeStatus(code);
+              <div className="w-full overflow-x-auto">
+                <Table className="min-w-[980px] table-fixed">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[12%] text-center">Code</TableHead>
+                      <TableHead className="w-[17%] text-center">Used By</TableHead>
+                      <TableHead className="w-[21%] text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mx-auto gap-1.5 px-2"
+                          onClick={() => handleSort("school")}
+                          aria-label={`${getSortLabel("school")} by assigned school`}
+                        >
+                          Assigned School
+                          <ArrowUpDown className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableHead>
+                      <TableHead className="w-[12%] text-center">Student Limit</TableHead>
+                      <TableHead className="w-[15%] text-center">Expiry Date</TableHead>
+                      <TableHead className="w-[13%] text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mx-auto gap-1.5 px-2"
+                          onClick={() => handleSort("status")}
+                          aria-label={`${getSortLabel("status")} by status`}
+                        >
+                          Status
+                          <ArrowUpDown className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableHead>
+                      <TableHead className="w-[10%] text-center">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sortedClassCodes.map((code) => {
+                      const status = getClassCodeStatus(code);
 
-                    return (
-                      <TableRow key={code.code}>
-                        <TableCell className="text-center">
-                          <Badge variant="secondary" className="font-mono">
-                            {code.code}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <div className="font-medium">
-                            {code.teacher_name || "-"}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <TruncatedText
-                            value={code.school_admin_name}
-                            maxChars={24}
-                            className="mx-auto"
-                          />
-                        </TableCell>
-                        <TableCell className="text-center tabular-nums">
-                          {code.student_limit || "-"}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {code.expiration_date ? (
-                            <Badge
-                              variant={status === "Expired" ? "destructive" : "outline"}
-                              className="whitespace-nowrap font-normal"
-                            >
-                              {formatUsDate(code.expiration_date)}
+                      return (
+                        <TableRow key={code.code}>
+                          <TableCell className="text-center">
+                            <Badge variant="secondary" className="font-mono">
+                              {code.code}
                             </Badge>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge
-                            variant={getStatusVariant(status)}
-                            className={getStatusClassName(status)}
-                          >
-                            {status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <div className="flex justify-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              aria-label={`Edit class code ${code.code}`}
-                              onClick={() => openEditDialog(code)}
+                          </TableCell>
+                          <TableCell className="overflow-hidden text-center">
+                            <TruncatedText
+                              value={code.teacher_name}
+                              maxChars={18}
+                              className="mx-auto font-medium"
+                            />
+                          </TableCell>
+                          <TableCell className="overflow-hidden text-center">
+                            <TruncatedText
+                              value={code.school_admin_name}
+                              maxChars={20}
+                              className="mx-auto"
+                            />
+                          </TableCell>
+                          <TableCell className="text-center tabular-nums">
+                            {code.student_limit || "-"}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {code.expiration_date ? (
+                              <Badge
+                                variant={status === "Expired" ? "destructive" : "outline"}
+                                className="whitespace-nowrap font-normal"
+                              >
+                                {formatUsDate(code.expiration_date)}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Badge
+                              variant={getStatusVariant(status)}
+                              className={getStatusClassName(status)}
                             >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive hover:text-destructive"
-                              aria-label={`Delete class code ${code.code}`}
-                              disabled={!canDeleteClassCode(code)}
-                              onClick={() => openDeleteDialog(code)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                              {status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex justify-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                aria-label={`Edit class code ${code.code}`}
+                                onClick={() => openEditDialog(code)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                aria-label={`Delete class code ${code.code}`}
+                                disabled={!canDeleteClassCode(code)}
+                                onClick={() => openDeleteDialog(code)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -905,10 +916,10 @@ export default function ClassCodesPage() {
                   {filteredClassCodes.length !== 1 ? "s" : ""} found
                 </CardDescription>
               </div>
-              <Input
+              <ClearableSearchInput
                 placeholder="Search class codes..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={setSearchQuery}
                 className="w-full md:w-[280px]"
               />
             </div>
@@ -932,62 +943,64 @@ export default function ClassCodesPage() {
                 )}
               </div>
             ) : (
-              <Table className="table-fixed">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[31%] text-center">Email</TableHead>
-                    <TableHead className="w-[15%] text-center">Code</TableHead>
-                    <TableHead className="w-[22%] text-center">Teacher</TableHead>
-                    <TableHead className="w-[15%] text-center">Students</TableHead>
-                    <TableHead className="w-[17%] text-center">Expiration</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredClassCodes.map((code) => {
-                    const teacher = getTeacherForCode(code.code);
-                    const isExpired = code.expiration_date
-                      ? isExpiredDate(code.expiration_date)
-                      : false;
+              <div className="w-full overflow-x-auto">
+                <Table className="min-w-[720px] table-fixed">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[31%] text-center">Email</TableHead>
+                      <TableHead className="w-[15%] text-center">Code</TableHead>
+                      <TableHead className="w-[22%] text-center">Teacher</TableHead>
+                      <TableHead className="w-[15%] text-center">Students</TableHead>
+                      <TableHead className="w-[17%] text-center">Expiration</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredClassCodes.map((code) => {
+                      const teacher = getTeacherForCode(code.code);
+                      const isExpired = code.expiration_date
+                        ? isExpiredDate(code.expiration_date)
+                        : false;
 
-                    return (
-                      <TableRow key={code.code}>
-                        <TableCell className="text-muted-foreground">
-                          <TruncatedText
-                            value={code.teacher_email || teacher?.email}
-                            maxChars={28}
-                          />
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant="secondary" className="font-mono">
-                            {code.code}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-center whitespace-nowrap">
-                          {code.teacher_name || teacher?.name || "-"}
-                        </TableCell>
-                        <TableCell className="text-center tabular-nums">
-                          <span className="font-medium">{teacher?.studentCount || 0}</span>
-                          <span className="text-muted-foreground">
-                            {code.student_limit ? ` / ${code.student_limit}` : ""}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {code.expiration_date ? (
-                            <Badge
-                              variant={isExpired ? "destructive" : "outline"}
-                              className="whitespace-nowrap font-normal"
-                            >
-                              {formatUsDate(code.expiration_date)}
+                      return (
+                        <TableRow key={code.code}>
+                          <TableCell className="text-muted-foreground">
+                            <TruncatedText
+                              value={code.teacher_email || teacher?.email}
+                              maxChars={28}
+                            />
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Badge variant="secondary" className="font-mono">
+                              {code.code}
                             </Badge>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                          </TableCell>
+                          <TableCell className="text-center whitespace-nowrap">
+                            {code.teacher_name || teacher?.name || "-"}
+                          </TableCell>
+                          <TableCell className="text-center tabular-nums">
+                            <span className="font-medium">{teacher?.studentCount || 0}</span>
+                            <span className="text-muted-foreground">
+                              {code.student_limit ? ` / ${code.student_limit}` : ""}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {code.expiration_date ? (
+                              <Badge
+                                variant={isExpired ? "destructive" : "outline"}
+                                className="whitespace-nowrap font-normal"
+                              >
+                                {formatUsDate(code.expiration_date)}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </CardContent>
         </Card>

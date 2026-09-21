@@ -1,0 +1,114 @@
+{
+  "hosting": {
+    "site": "classroomapp-1abfc",
+    "source": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "redirects": [
+      {
+        "source": "/",
+        "destination": "/elementarylearning/login",
+        "type": 302
+      },
+      {
+        "source": "/login",
+        "destination": "/elementarylearning/login",
+        "type": 302
+      },
+      {
+        "source": "/signup",
+        "destination": "/elementarylearning/signup",
+        "type": 302
+      },
+      {
+        "source": "/forgot-password",
+        "destination": "/elementarylearning/forgot-password",
+        "type": 302
+      },
+      {
+        "source": "/setup",
+        "destination": "/elementarylearning/setup",
+        "type": 302
+      },
+      {
+        "source": "/admin/dashboard",
+        "destination": "/elementarylearning/dashboard",
+        "type": 302
+      },
+      {
+        "source": "/admin/schools",
+        "destination": "/elementarylearning/schools",
+        "type": 302
+      },
+      {
+        "source": "/admin/class-codes",
+        "destination": "/elementarylearning/class-codes",
+        "type": 302
+      },
+      {
+        "source": "/admin/teachers",
+        "destination": "/elementarylearning/teachers",
+        "type": 302
+      },
+      {
+        "source": "/admin/students",
+        "destination": "/elementarylearning/students",
+        "type": 302
+      },
+      {
+        "source": "/admin/settings",
+        "destination": "/elementarylearning/settings",
+        "type": 302
+      }
+    ],
+    "rewrites": [
+      {
+        "source": "/elementarylearning",
+        "destination": "/login.html"
+      },
+      {
+        "source": "/elementarylearning/login",
+        "destination": "/login.html"
+      },
+      {
+        "source": "/elementarylearning/signup",
+        "destination": "/signup.html"
+      },
+      {
+        "source": "/elementarylearning/forgot-password",
+        "destination": "/forgot-password.html"
+      },
+      {
+        "source": "/elementarylearning/setup",
+        "destination": "/setup.html"
+      },
+      {
+        "source": "/elementarylearning/dashboard",
+        "destination": "/admin/dashboard.html"
+      },
+      {
+        "source": "/elementarylearning/schools",
+        "destination": "/admin/schools.html"
+      },
+      {
+        "source": "/elementarylearning/class-codes",
+        "destination": "/admin/class-codes.html"
+      },
+      {
+        "source": "/elementarylearning/teachers",
+        "destination": "/admin/teachers.html"
+      },
+      {
+        "source": "/elementarylearning/students",
+        "destination": "/admin/students.html"
+      },
+      {
+        "source": "/elementarylearning/settings",
+        "destination": "/admin/settings.html"
+      }
+    ]
+  }
+}
