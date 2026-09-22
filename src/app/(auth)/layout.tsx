@@ -20,6 +20,7 @@ export default function AuthLayout({
     if (typeof window === "undefined") return;
 
     const isClassroomHost =
+      window.location.hostname === "admin.classroomsolution.app" ||
       window.location.hostname === "classroomsolution.app" ||
       window.location.hostname === "www.classroomsolution.app" ||
       window.location.hostname === "classroomapp-1abfc.web.app" ||

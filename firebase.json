@@ -1,6 +1,6 @@
 {
   "hosting": {
-    "site": "classroomapp-1abfc",
+    "site": "classroom-admin",
     "source": ".",
     "ignore": [
       "firebase.json",

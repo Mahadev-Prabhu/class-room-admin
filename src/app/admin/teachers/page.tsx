@@ -52,6 +52,7 @@ import { TruncatedText } from "@/components/admin/TruncatedText";
 import {
   ArrowRightLeft,
   ArrowUpDown,
+  Copy,
   Info,
   Mail,
   MoreHorizontal,
@@ -222,8 +223,8 @@ export default function TeachersPage() {
       const schoolTeacherUids = new Set(
         [
           ...classCodes
-            .filter((code) => code.school_admin_uid === schoolFilter && code.teacher_uid)
-            .map((code) => code.teacher_uid),
+            .filter((code) => code.school_admin_uid === schoolFilter && code.used_by)
+            .map((code) => code.used_by),
           ...Object.keys(selectedSchool?.teachers || {}),
         ].filter((uid): uid is string => Boolean(uid))
       );
@@ -337,6 +338,11 @@ export default function TeachersPage() {
     }
   };
 
+  const handleCopyUid = async (uid: string) => {
+    await navigator.clipboard.writeText(uid);
+    toast.success("UID copied");
+  };
+
   const handleDeleteTeacher = async () => {
     if (!admin || !deleteTeacher) {
       return;
@@ -422,7 +428,7 @@ export default function TeachersPage() {
 
   const getAssignedCodeForTeacher = (teacherUid: string) => {
     return classCodes.find(
-      (code) => code.teacher_uid === teacherUid && code.school_admin_uid
+      (code) => code.used_by === teacherUid && code.school_admin_uid
     );
   };
 
@@ -431,7 +437,7 @@ export default function TeachersPage() {
 
     return classCodes.find(
       (code) =>
-        code.teacher_uid === teacher.uid ||
+        code.used_by === teacher.uid ||
         code.code === teacher.teacherCode
     );
   };
@@ -454,7 +460,7 @@ export default function TeachersPage() {
 
     return teachers.filter((teacher) => {
       const hasActiveAssignedCode = classCodes.some(
-        (code) => code.teacher_uid === teacher.uid && code.school_admin_uid
+        (code) => code.used_by === teacher.uid && code.school_admin_uid
       );
       const isSameSchool =
         admin?.role === "super_admin"
@@ -624,7 +630,7 @@ export default function TeachersPage() {
         return;
       }
 
-      if (teacherCode.teacher_uid) {
+      if (teacherCode.used_by) {
         setCreateCodeValidation({
           checked: true,
           valid: false,
@@ -715,7 +721,8 @@ export default function TeachersPage() {
         admin.uid,
         normalizedEmail,
         createTeacherPassword,
-        normalizedCode
+        normalizedCode,
+        { enforceFormat: appConfig.key !== "elementarylearning" }
       );
       toast.success("Teacher account created successfully");
       resetCreateTeacherForm();
@@ -755,7 +762,7 @@ export default function TeachersPage() {
         return;
       }
 
-      if (!teacherCode.teacher_uid) {
+      if (!teacherCode.used_by) {
         setCodeValidation({ checked: true, valid: false, message: "This class code has not been used by a teacher yet" });
         setExpirationDate(teacherCode.expiration_date || "");
         setStudentLimit(teacherCode.student_limit?.toString() || "");
@@ -829,7 +836,8 @@ export default function TeachersPage() {
     setIsSubmittingCode(true);
 
     try {
-      const teacherUid = codeValidation.classCode.teacher_uid;
+      const teacherUid =
+        codeValidation.classCode.used_by || codeValidation.teacher?.uid;
       if (!teacherUid) {
         toast.error("Teacher account not found for this code");
         return;
@@ -1197,8 +1205,30 @@ export default function TeachersPage() {
                 <DialogDescription>Teacher account and assignment details</DialogDescription>
               </DialogHeader>
               <div className="space-y-5">
-                <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
-                  <div className="space-y-1">
+	                <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
+	                  {isSuperAdmin && (
+	                    <div className="space-y-1 sm:col-span-2">
+	                      <div className="text-xs font-medium uppercase text-muted-foreground">
+	                        UID
+	                      </div>
+	                      <div className="flex items-center gap-2">
+	                        <div className="min-w-0 flex-1 break-all rounded-md bg-muted px-2 py-1 font-mono text-xs">
+	                          {selectedTeacher.uid}
+	                        </div>
+	                        <Button
+	                          type="button"
+	                          variant="outline"
+	                          size="icon"
+	                          className="h-8 w-8 shrink-0"
+	                          aria-label="Copy teacher UID"
+	                          onClick={() => handleCopyUid(selectedTeacher.uid)}
+	                        >
+	                          <Copy className="h-3.5 w-3.5" />
+	                        </Button>
+	                      </div>
+	                    </div>
+	                  )}
+	                  <div className="space-y-1">
                     <div className="text-xs font-medium uppercase text-muted-foreground">
                       Email
                     </div>

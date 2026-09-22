@@ -216,6 +216,11 @@ export default function SchoolsPage() {
     toast.success("Credentials copied");
   };
 
+  const handleCopyUid = async (uid: string) => {
+    await navigator.clipboard.writeText(uid);
+    toast.success("UID copied");
+  };
+
   const handleSendResetLink = async (email: string) => {
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail || normalizedEmail === "-" || normalizedEmail.includes("@") === false) {
@@ -521,15 +526,35 @@ export default function SchoolsPage() {
                         School admin account details
                       </DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-5">
-                      <div className="flex items-center justify-between rounded-md border px-3 py-2">
-                        <span className="text-sm text-muted-foreground">Status</span>
-                        {renderStatusBadge(
-                          viewData.isActive,
-                          viewData.setupComplete
-                        )}
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
+	                    <div className="space-y-5">
+	                      <div className="flex items-center justify-between rounded-md border px-3 py-2">
+	                        <span className="text-sm text-muted-foreground">Status</span>
+	                        {renderStatusBadge(
+	                          viewData.isActive,
+	                          viewData.setupComplete
+	                        )}
+	                      </div>
+	                      <div className="space-y-1 rounded-md border p-3">
+	                        <div className="text-xs font-medium uppercase text-muted-foreground">
+	                          UID
+	                        </div>
+	                        <div className="flex items-center gap-2">
+	                          <div className="min-w-0 flex-1 break-all rounded-md bg-muted px-2 py-1 font-mono text-xs">
+	                            {selectedSchool.uid}
+	                          </div>
+	                          <Button
+	                            type="button"
+	                            variant="outline"
+	                            size="icon"
+	                            className="h-8 w-8 shrink-0"
+	                            aria-label="Copy school admin UID"
+	                            onClick={() => handleCopyUid(selectedSchool.uid)}
+	                          >
+	                            <Copy className="h-3.5 w-3.5" />
+	                          </Button>
+	                        </div>
+	                      </div>
+	                      <div className="grid gap-3 sm:grid-cols-2">
                         {details.map(([label, value]) => (
                           <div key={label} className="space-y-1">
                             <div className="text-xs font-medium uppercase text-muted-foreground">

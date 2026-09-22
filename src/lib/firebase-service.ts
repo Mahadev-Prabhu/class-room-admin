@@ -371,14 +371,14 @@ export async function fetchDashboardStats(
   );
   const scopedTeacherUids = new Set(
     [
-      ...scopedClassCodes.map((classCode) => classCode.teacher_uid),
+      ...scopedClassCodes.map((classCode) => classCode.used_by),
       ...adminTeachers.map((teacher) => teacher.uid),
     ].filter(isString)
   );
   const scopedTeacherKeys = new Set(
     [
       ...adminTeachers.map((teacher) => teacher.uid || teacher.teacherCode),
-      ...scopedClassCodes.map((classCode) => classCode.teacher_uid || classCode.code),
+      ...scopedClassCodes.map((classCode) => classCode.used_by || classCode.code),
     ].filter(isString)
   );
 
@@ -470,21 +470,23 @@ export async function fetchClassCodes(): Promise<ClassCode[]> {
         expiry_date?: string;
         students_limits?: number;
         used_by?: string;
+        teacher_uid?: string;
         school_admin_uid?: string;
         valid_days_after_applied?: number;
       };
+      const usedBy = teacherCode.used_by || teacherCode.teacher_uid;
       const schoolAdminUid =
         teacherCode.school_admin_uid || schoolAdminByTeacherCode.get(code);
       const schoolAdmin = schoolAdminUid
         ? (users[schoolAdminUid] as Partial<Admin> | undefined)
         : undefined;
-      const teacherUser = teacherCode.used_by
-        ? (users[teacherCode.used_by] as TeacherUser | undefined)
+      const teacherUser = usedBy
+        ? (users[usedBy] as TeacherUser | undefined)
         : undefined;
 
       return {
         code,
-        teacher_uid: teacherCode.used_by,
+        used_by: usedBy,
         teacher_name:
           formatDisplayName(teacherUser?.teacher_details?.teacher_name) ||
           formatDisplayName(teacherUser?.display_name),
@@ -505,8 +507,14 @@ export async function fetchClassCodes(): Promise<ClassCode[]> {
   return [];
 }
 
-export async function createClassCode(classCode: ClassCode): Promise<void> {
+export async function createClassCode(
+  classCode: ClassCode,
+  options: { enforceFormat?: boolean } = {}
+): Promise<void> {
+  const enforceFormat = options.enforceFormat ?? true;
+
   if (
+    enforceFormat &&
     !TEACHER_CODE_PATTERN.test(classCode.code) &&
     !TEST_TEACHER_CODE_PATTERN.test(classCode.code)
   ) {
@@ -522,7 +530,7 @@ export async function createClassCode(classCode: ClassCode): Promise<void> {
     ...(classCode.student_limit !== undefined
       ? { students_limits: classCode.student_limit }
       : {}),
-    ...(classCode.teacher_uid ? { used_by: classCode.teacher_uid } : {}),
+    ...(classCode.used_by ? { used_by: classCode.used_by } : {}),
     ...(classCode.school_admin_uid ? { school_admin_uid: classCode.school_admin_uid } : {}),
     valid_days_after_applied: 365,
   });
@@ -589,8 +597,8 @@ export async function updateClassCode(
     teacherCodeUpdates.students_limits = updates.student_limit ?? null;
   }
 
-  if ("teacher_uid" in updates) {
-    teacherCodeUpdates.used_by = updates.teacher_uid ?? null;
+  if ("used_by" in updates) {
+    teacherCodeUpdates.used_by = updates.used_by ?? null;
   }
 
   if ("school_admin_uid" in updates) {
@@ -609,48 +617,48 @@ export async function assignTeacherCodeToSchool(
   const users = await fetchAllUsers();
   const schoolAdmin = users[schoolAdminUid] as Admin | undefined;
   const teacherCodeRef = ref(db, `teacher_codes/${code}`);
-  let assignedToAnotherSchool = false;
-  let teacherUid = "";
+  const teacherEntry = Object.entries(users).find(([, user]) => {
+    const teacher = user as TeacherUser;
+    return teacher.is_teacher === true && teacher.teacher_code === code;
+  });
+  let teacherUid = teacherEntry?.[0] || "";
 
   if (!schoolAdmin || schoolAdmin.role !== "school_admin") {
     throw new Error("School account not found");
   }
 
-  const result = await runTransaction(teacherCodeRef, (teacherCode) => {
-    if (!teacherCode || typeof teacherCode !== "object") {
-      return;
-    }
+  const teacherCodeSnapshot = await get(teacherCodeRef);
+  const teacherCode = teacherCodeSnapshot.val() as
+    | {
+        used_by?: string;
+        teacher_uid?: string;
+        school_admin_uid?: string;
+      }
+    | null;
 
-    if (
-      teacherCode.school_admin_uid &&
-      teacherCode.school_admin_uid !== schoolAdminUid
-    ) {
-      assignedToAnotherSchool = true;
-      return;
-    }
-
-    teacherUid = teacherCode.used_by || teacherCode.teacher_uid || "";
-
-    return {
-      ...teacherCode,
-      school_admin_uid: schoolAdminUid,
-    };
-  });
-
-  if (assignedToAnotherSchool) {
-    throw new Error("This class code is already assigned to another school");
-  }
-
-  if (!result.committed) {
+  if (!teacherCode || typeof teacherCode !== "object") {
     throw new Error("Teacher code not found");
   }
 
-  if (teacherUid) {
-    await update(ref(db), {
-      [`users/${teacherUid}/school_name`]: getAdminSchoolName(schoolAdmin),
-      [`users/${teacherUid}/school_admin_uid`]: schoolAdminUid,
-    });
+  if (
+    teacherCode.school_admin_uid &&
+    teacherCode.school_admin_uid !== schoolAdminUid
+  ) {
+    throw new Error("This class code is already assigned to another school");
   }
+
+  teacherUid = teacherCode.used_by || teacherCode.teacher_uid || teacherUid;
+
+  if (!teacherUid) {
+    throw new Error("Teacher account not found for this code");
+  }
+
+  await update(ref(db), {
+    [`teacher_codes/${code}/used_by`]: teacherUid,
+    [`teacher_codes/${code}/school_admin_uid`]: schoolAdminUid,
+    [`users/${teacherUid}/school_name`]: getAdminSchoolName(schoolAdmin),
+    [`users/${teacherUid}/school_admin_uid`]: schoolAdminUid,
+  });
 }
 
 export async function setTeacherSchool(
@@ -820,7 +828,7 @@ export async function moveStudentsToTeacher(
   const student = users[studentUid] as StudentUser | undefined;
   const targetTeacher = users[newTeacherUid] as TeacherUser | undefined;
   const targetCode = classCodes.find(
-    (code) => code.code === newTeacherCode && code.teacher_uid === newTeacherUid
+    (code) => code.code === newTeacherCode && code.used_by === newTeacherUid
   );
   const uniqueChildIds = Array.from(new Set(childIds));
 
@@ -877,7 +885,7 @@ export async function moveStudentsToTeacher(
     const currentCode = classCodes.find(
       (code) =>
         code.code === child.teacher_code ||
-        (child.teacher_uid && code.teacher_uid === child.teacher_uid)
+        (child.teacher_uid && code.used_by === child.teacher_uid)
     );
 
     if (currentCode?.school_admin_uid !== targetCode.school_admin_uid) {
@@ -962,7 +970,7 @@ export async function transferTeacherAssignment(
   }
 
   const targetHasActiveCode = classCodes.some(
-    (code) => code.teacher_uid === toTeacherUid && code.school_admin_uid
+    (code) => code.used_by === toTeacherUid && code.school_admin_uid
   );
   const targetStudentCount = countTeacherStudents(toTeacher);
 
@@ -1092,7 +1100,7 @@ export async function deleteTeacherAccountCascade(
   const classCodes = await fetchClassCodes();
   const classCode =
     teacher.teacher_code ||
-    classCodes.find((code) => code.teacher_uid === teacherUid)?.code ||
+    classCodes.find((code) => code.used_by === teacherUid)?.code ||
     "";
   const matchingChildrenByStudentUid = new Map<string, Set<string>>();
 
@@ -1371,19 +1379,25 @@ export async function createTeacherAccountForSchool(
   schoolAdminUid: string,
   email: string,
   password: string,
-  teacherCode: string
+  teacherCode: string,
+  options: { enforceFormat?: boolean } = {}
 ): Promise<void> {
   const db = getDatabase();
   const normalizedEmail = email.trim().toLowerCase();
   const normalizedCode = teacherCode.trim().toUpperCase();
   const users = await fetchAllUsers();
   const schoolAdmin = users[schoolAdminUid] as Admin | undefined;
+  const enforceFormat = options.enforceFormat ?? true;
 
   if (!schoolAdmin || schoolAdmin.role !== "school_admin") {
     throw new Error("School account not found");
   }
 
-  if (!TEACHER_CODE_PATTERN.test(normalizedCode) && !TEST_TEACHER_CODE_PATTERN.test(normalizedCode)) {
+  if (
+    enforceFormat &&
+    !TEACHER_CODE_PATTERN.test(normalizedCode) &&
+    !TEST_TEACHER_CODE_PATTERN.test(normalizedCode)
+  ) {
     throw new Error(TEACHER_CODE_REQUIREMENTS);
   }
 

@@ -42,7 +42,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { ClearableSearchInput } from "@/components/admin/ClearableSearchInput";
 import { TruncatedText } from "@/components/admin/TruncatedText";
-import { ArrowUpDown, Info } from "lucide-react";
+import { ArrowUpDown, Copy, Info } from "lucide-react";
 import { toast } from "sonner";
 import { formatDisplayName, formatUsDate } from "@/lib/utils";
 import {
@@ -77,6 +77,8 @@ const isClassCodePendingTeacher = (teacher: TeacherListItem) =>
 
 export default function StudentsPage() {
   const { admin } = useAuth();
+  const isSuperAdmin =
+    admin?.role === "super_admin" || admin?.roles?.includes("super_admin");
   const searchParams = useSearchParams();
   const teacherFilter = searchParams.get("teacher");
   const schoolFilter = searchParams.get("school");
@@ -169,8 +171,8 @@ export default function StudentsPage() {
     if (admin?.role === "super_admin" && schoolFilter) {
       const schoolTeacherUids = new Set(
         classCodes
-          .filter((code) => code.school_admin_uid === schoolFilter && code.teacher_uid)
-          .map((code) => code.teacher_uid)
+          .filter((code) => code.school_admin_uid === schoolFilter && code.used_by)
+          .map((code) => code.used_by)
       );
 
       filtered = filtered.filter((student) =>
@@ -238,6 +240,11 @@ export default function StudentsPage() {
     }
 
     return sortDirection === "asc" ? "Sorted ascending" : "Sorted descending";
+  };
+
+  const handleCopyUid = async (uid: string) => {
+    await navigator.clipboard.writeText(uid);
+    toast.success("UID copied");
   };
 
   const handleDeleteStudent = async () => {
@@ -355,14 +362,14 @@ export default function StudentsPage() {
   };
 
   const getClassCodeForTeacher = (teacherUid: string) => {
-    return classCodes.find((code) => code.teacher_uid === teacherUid);
+    return classCodes.find((code) => code.used_by === teacherUid);
   };
 
   const getClassCodeForChild = (child: StudentListItem["children"][number]) => {
     return classCodes.find(
       (code) =>
         code.code === child.teacherCode ||
-        (child.teacherUid && code.teacher_uid === child.teacherUid)
+        (child.teacherUid && code.used_by === child.teacherUid)
     );
   };
 
@@ -397,7 +404,7 @@ export default function StudentsPage() {
             classCodes.find(
               (code) =>
                 code.code === child.teacherCode ||
-                (child.teacherUid && code.teacher_uid === child.teacherUid)
+                (child.teacherUid && code.used_by === child.teacherUid)
             )?.school_admin_uid
           )
           .filter((uid): uid is string => Boolean(uid))
@@ -411,7 +418,7 @@ export default function StudentsPage() {
         (child) =>
           child.teacherUid === teacher.uid || child.teacherCode === teacher.teacherCode
       );
-      const classCode = classCodes.find((code) => code.teacher_uid === teacher.uid);
+      const classCode = classCodes.find((code) => code.used_by === teacher.uid);
       const availableSeats =
         classCode?.student_limit === undefined
           ? null
@@ -752,9 +759,31 @@ export default function StudentsPage() {
                   Full child details for {selectedStudent.parentEmail}
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-5">
-                <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
-                  <div className="space-y-1">
+	              <div className="space-y-5">
+	                <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
+	                  {isSuperAdmin && (
+	                    <div className="space-y-1 sm:col-span-2">
+	                      <div className="text-xs font-medium uppercase text-muted-foreground">
+	                        UID
+	                      </div>
+	                      <div className="flex items-center gap-2">
+	                        <div className="min-w-0 flex-1 break-all rounded-md bg-muted px-2 py-1 font-mono text-xs">
+	                          {selectedStudent.uid}
+	                        </div>
+	                        <Button
+	                          type="button"
+	                          variant="outline"
+	                          size="icon"
+	                          className="h-8 w-8 shrink-0"
+	                          aria-label="Copy student UID"
+	                          onClick={() => handleCopyUid(selectedStudent.uid)}
+	                        >
+	                          <Copy className="h-3.5 w-3.5" />
+	                        </Button>
+	                      </div>
+	                    </div>
+	                  )}
+	                  <div className="space-y-1">
                     <div className="text-xs font-medium uppercase text-muted-foreground">
                       Parent Email
                     </div>

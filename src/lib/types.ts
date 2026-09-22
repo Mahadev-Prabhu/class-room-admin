@@ -113,7 +113,7 @@ export type FirebaseUser = TeacherUser | StudentUser | AdminUser;
 // Class Code structure
 export interface ClassCode {
   code: string;
-  teacher_uid?: string;
+  used_by?: string;
   teacher_name?: string;
   teacher_email?: string;
   school_admin_uid?: string;

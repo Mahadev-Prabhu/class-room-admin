@@ -60,6 +60,7 @@ import { AdminTeacher, ClassCode, TeacherListItem } from "@/lib/types";
 import { formatUsDate } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { toAppPathForPath } from "@/lib/routes";
+import { useAppConfig } from "@/lib/use-app-config";
 
 const getLocalDateValue = (date: Date) => {
   const year = date.getFullYear();
@@ -83,7 +84,7 @@ const getClassCodeStatus = (classCode: ClassCode) => {
     return "Expired";
   }
 
-  if (!classCode.teacher_uid) {
+  if (!classCode.used_by) {
     return "Available";
   }
 
@@ -95,7 +96,7 @@ const getClassCodeStatus = (classCode: ClassCode) => {
 };
 
 const canDirectDeleteClassCode = (classCode: ClassCode) =>
-  !classCode.teacher_uid && !classCode.school_admin_uid;
+  !classCode.used_by && !classCode.school_admin_uid;
 
 const canDeleteClassCode = (classCode: ClassCode) =>
   ["Expired", "Teacher Claimed"].includes(getClassCodeStatus(classCode)) ||
@@ -144,6 +145,7 @@ const STATUS_SORT_ORDER = {
 export default function ClassCodesPage() {
   const router = useRouter();
   const pathname = usePathname();
+  const appConfig = useAppConfig();
   const { admin } = useAuth();
   const [classCodes, setClassCodes] = useState<ClassCode[]>([]);
   const [teachers, setTeachers] = useState<TeacherListItem[]>([]);
@@ -246,7 +248,7 @@ export default function ClassCodesPage() {
         return;
       }
 
-      if (!teacherCode.teacher_uid) {
+      if (!teacherCode.used_by) {
         setCodeValidation({ checked: true, valid: false, message: "This class code has not been used by a teacher yet" });
         setExpirationDate(teacherCode.expiration_date || "");
         setStudentLimit(teacherCode.student_limit?.toString() || "");
@@ -295,7 +297,13 @@ export default function ClassCodesPage() {
       return;
     }
 
-    if (admin?.role === "super_admin" && !isValidTeacherCodeFormat(normalizedCode)) {
+    const shouldEnforceCodeFormat = appConfig.key !== "elementarylearning";
+
+    if (
+      admin?.role === "super_admin" &&
+      shouldEnforceCodeFormat &&
+      !isValidTeacherCodeFormat(normalizedCode)
+    ) {
       toast.error(TEACHER_CODE_REQUIREMENTS);
       return;
     }
@@ -334,17 +342,21 @@ export default function ClassCodesPage() {
 
     try {
       if (admin?.role === "super_admin") {
-        await createClassCode({
-          code: normalizedCode,
-          teacher_name: teacherName || undefined,
-          teacher_email: teacherEmail || undefined,
-          teacher_uid: codeValidation.teacher?.uid,
-          expiration_date: expirationDate || undefined,
-          student_limit: studentLimit ? parseInt(studentLimit) : undefined,
-          created_at: new Date().toISOString(),
-        });
+        await createClassCode(
+          {
+            code: normalizedCode,
+            teacher_name: teacherName || undefined,
+            teacher_email: teacherEmail || undefined,
+            used_by: codeValidation.teacher?.uid,
+            expiration_date: expirationDate || undefined,
+            student_limit: studentLimit ? parseInt(studentLimit) : undefined,
+            created_at: new Date().toISOString(),
+          },
+          { enforceFormat: shouldEnforceCodeFormat }
+        );
       } else if (admin?.uid) {
-        const teacherUid = codeValidation.classCode?.teacher_uid;
+        const teacherUid =
+          codeValidation.classCode?.used_by || codeValidation.teacher?.uid;
         if (!teacherUid) {
           toast.error("Teacher account not found for this code");
           return;
@@ -640,7 +652,7 @@ export default function ClassCodesPage() {
                     </Button>
                   )}
                 </div>
-                {admin?.role === "super_admin" && (
+                {admin?.role === "super_admin" && appConfig.key !== "elementarylearning" && (
                   <p className="text-xs text-muted-foreground">
                     Format: starts with E, then 3 uppercase letters/numbers,
                     then 2 to 4 numbers.
