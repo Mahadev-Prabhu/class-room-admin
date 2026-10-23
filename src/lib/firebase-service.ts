@@ -451,11 +451,21 @@ export async function fetchDashboardStats(
 }
 
 // Class Codes management
-const TEACHER_CODE_PATTERN = /^E[A-Z0-9]{3}\d{2,4}$/;
+type TeacherCodePrefix = "C" | "E";
 const TEST_TEACHER_CODE_PATTERN = /^TEST\d{3,4}$/;
-const TEACHER_CODE_REQUIREMENTS =
-  "Teacher code must start with E, followed by 3 uppercase letters or numbers, and end with 2 to 4 numbers.";
 const CLASS_CODE_PENDING_STATUS = "class_code_pending";
+
+function getTeacherCodePattern(prefix: TeacherCodePrefix) {
+  return new RegExp(`^${prefix}[A-Z0-9]{3}\\d{2,4}$`);
+}
+
+function getTeacherCodeRequirements(prefix: TeacherCodePrefix) {
+  return `Teacher code must start with ${prefix}, followed by 3 uppercase letters or numbers, and end with 2 to 4 numbers.`;
+}
+
+function isValidTeacherCodeFormat(code: string, prefix: TeacherCodePrefix) {
+  return getTeacherCodePattern(prefix).test(code) || TEST_TEACHER_CODE_PATTERN.test(code);
+}
 
 export async function fetchClassCodes(): Promise<ClassCode[]> {
   const [users, db] = await Promise.all([fetchAllUsers(), Promise.resolve(getDatabase())]);
@@ -509,16 +519,16 @@ export async function fetchClassCodes(): Promise<ClassCode[]> {
 
 export async function createClassCode(
   classCode: ClassCode,
-  options: { enforceFormat?: boolean } = {}
+  options: { enforceFormat?: boolean; codePrefix?: TeacherCodePrefix } = {}
 ): Promise<void> {
   const enforceFormat = options.enforceFormat ?? true;
+  const codePrefix = options.codePrefix ?? "E";
 
   if (
     enforceFormat &&
-    !TEACHER_CODE_PATTERN.test(classCode.code) &&
-    !TEST_TEACHER_CODE_PATTERN.test(classCode.code)
+    !isValidTeacherCodeFormat(classCode.code, codePrefix)
   ) {
-    throw new Error(TEACHER_CODE_REQUIREMENTS);
+    throw new Error(getTeacherCodeRequirements(codePrefix));
   }
 
   const db = getDatabase();
@@ -1380,7 +1390,7 @@ export async function createTeacherAccountForSchool(
   email: string,
   password: string,
   teacherCode: string,
-  options: { enforceFormat?: boolean } = {}
+  options: { enforceFormat?: boolean; codePrefix?: TeacherCodePrefix } = {}
 ): Promise<void> {
   const db = getDatabase();
   const normalizedEmail = email.trim().toLowerCase();
@@ -1388,6 +1398,7 @@ export async function createTeacherAccountForSchool(
   const users = await fetchAllUsers();
   const schoolAdmin = users[schoolAdminUid] as Admin | undefined;
   const enforceFormat = options.enforceFormat ?? true;
+  const codePrefix = options.codePrefix ?? "E";
 
   if (!schoolAdmin || schoolAdmin.role !== "school_admin") {
     throw new Error("School account not found");
@@ -1395,10 +1406,9 @@ export async function createTeacherAccountForSchool(
 
   if (
     enforceFormat &&
-    !TEACHER_CODE_PATTERN.test(normalizedCode) &&
-    !TEST_TEACHER_CODE_PATTERN.test(normalizedCode)
+    !isValidTeacherCodeFormat(normalizedCode, codePrefix)
   ) {
-    throw new Error(TEACHER_CODE_REQUIREMENTS);
+    throw new Error(getTeacherCodeRequirements(codePrefix));
   }
 
   const teacherCodeRef = ref(db, `teacher_codes/${normalizedCode}`);

@@ -5,7 +5,8 @@ import { getAppConfigByPath } from "./app-config";
 
 export function useAppConfig() {
   const pathname = usePathname();
+  const browserPathname =
+    typeof window === "undefined" ? pathname : window.location.pathname;
 
-  return getAppConfigByPath(pathname);
+  return getAppConfigByPath(browserPathname);
 }
-

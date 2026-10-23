@@ -41,6 +41,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { UsDateInput } from "@/components/ui/us-date-input";
 import { ClearableSearchInput } from "@/components/admin/ClearableSearchInput";
 import { TruncatedText } from "@/components/admin/TruncatedText";
 import { ArrowUpDown, Loader2, Pencil, Trash2 } from "lucide-react";
@@ -68,13 +69,6 @@ const getLocalDateValue = (date: Date) => {
   const day = String(date.getDate()).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
-};
-
-const getTomorrowDateValue = () => {
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  return getLocalDateValue(tomorrow);
 };
 
 const isExpiredDate = (date: string) => date <= getLocalDateValue(new Date());
@@ -126,12 +120,14 @@ const getStatusClassName = (status: string) => {
   return "";
 };
 
-const TEACHER_CODE_PATTERN = /^E[A-Z0-9]{3}\d{2,4}$/;
+type TeacherCodePrefix = "C" | "E";
 const TEST_TEACHER_CODE_PATTERN = /^TEST\d{3,4}$/;
-const TEACHER_CODE_REQUIREMENTS =
-  "Teacher code must start with E, followed by 3 uppercase letters or numbers, and end with 2 to 4 numbers.";
-const isValidTeacherCodeFormat = (value: string) =>
-  TEACHER_CODE_PATTERN.test(value) || TEST_TEACHER_CODE_PATTERN.test(value);
+const getTeacherCodePattern = (prefix: TeacherCodePrefix) =>
+  new RegExp(`^${prefix}[A-Z0-9]{3}\\d{2,4}$`);
+const getTeacherCodeRequirements = (prefix: TeacherCodePrefix) =>
+  `Teacher code must start with ${prefix}, followed by 3 uppercase letters or numbers, and end with 2 to 4 numbers.`;
+const isValidTeacherCodeFormat = (value: string, prefix: TeacherCodePrefix) =>
+  getTeacherCodePattern(prefix).test(value) || TEST_TEACHER_CODE_PATTERN.test(value);
 type SortField = "status" | "school";
 type SortDirection = "asc" | "desc";
 type CodeTypeFilter = "all" | "test" | "live";
@@ -146,6 +142,8 @@ export default function ClassCodesPage() {
   const router = useRouter();
   const pathname = usePathname();
   const appConfig = useAppConfig();
+  const teacherCodePrefix: TeacherCodePrefix =
+    appConfig.key === "elementarylearning" ? "C" : "E";
   const { admin } = useAuth();
   const [classCodes, setClassCodes] = useState<ClassCode[]>([]);
   const [teachers, setTeachers] = useState<TeacherListItem[]>([]);
@@ -297,14 +295,11 @@ export default function ClassCodesPage() {
       return;
     }
 
-    const shouldEnforceCodeFormat = appConfig.key !== "elementarylearning";
-
     if (
       admin?.role === "super_admin" &&
-      shouldEnforceCodeFormat &&
-      !isValidTeacherCodeFormat(normalizedCode)
+      !isValidTeacherCodeFormat(normalizedCode, teacherCodePrefix)
     ) {
-      toast.error(TEACHER_CODE_REQUIREMENTS);
+      toast.error(getTeacherCodeRequirements(teacherCodePrefix));
       return;
     }
 
@@ -352,7 +347,7 @@ export default function ClassCodesPage() {
             student_limit: studentLimit ? parseInt(studentLimit) : undefined,
             created_at: new Date().toISOString(),
           },
-          { enforceFormat: shouldEnforceCodeFormat }
+          { codePrefix: teacherCodePrefix }
         );
       } else if (admin?.uid) {
         const teacherUid =
@@ -625,7 +620,7 @@ export default function ClassCodesPage() {
                 <div className={admin?.role === "super_admin" ? "" : "flex gap-2"}>
                   <Input
                     id="code"
-                    placeholder="e.g., EFHB775"
+                    placeholder={`e.g., ${teacherCodePrefix}FHB775`}
                     value={newCode}
                     onChange={(e) => {
                       setNewCode(
@@ -652,9 +647,9 @@ export default function ClassCodesPage() {
                     </Button>
                   )}
                 </div>
-                {admin?.role === "super_admin" && appConfig.key !== "elementarylearning" && (
+                {admin?.role === "super_admin" && (
                   <p className="text-xs text-muted-foreground">
-                    Format: starts with E, then 3 uppercase letters/numbers,
+                    Format: starts with {teacherCodePrefix}, then 3 uppercase letters/numbers,
                     then 2 to 4 numbers.
                   </p>
                 )}
@@ -700,13 +695,11 @@ export default function ClassCodesPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="expiration">Expiration Date</Label>
-                  <Input
+                  <UsDateInput
                     id="expiration"
-                    type="date"
-                    min={getTomorrowDateValue()}
                     value={expirationDate}
                     disabled={admin?.role !== "super_admin"}
-                    onChange={(e) => setExpirationDate(e.target.value)}
+                    onValueChange={setExpirationDate}
                   />
                 </div>
                 <div className="space-y-2">
@@ -1038,12 +1031,10 @@ export default function ClassCodesPage() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="editExpiration">Expiration Date</Label>
-              <Input
+              <UsDateInput
                 id="editExpiration"
-                type="date"
-                min={getTomorrowDateValue()}
                 value={editExpirationDate}
-                onChange={(e) => setEditExpirationDate(e.target.value)}
+                onValueChange={setEditExpirationDate}
               />
             </div>
             <div className="space-y-2">

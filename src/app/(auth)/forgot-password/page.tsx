@@ -87,6 +87,7 @@ export default function ForgotPasswordPage() {
       <CardHeader className="space-y-1 text-center">
         <div className="flex justify-center mb-4">
           <img
+            data-app-logo
             src={appConfig.logoPath}
             alt={appConfig.appName}
             className="w-20 h-20 rounded-2xl object-cover"

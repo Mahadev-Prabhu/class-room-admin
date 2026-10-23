@@ -4,11 +4,21 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { getAppConfigByPath } from "@/lib/app-config";
 
+function updateIconLinks(rel: string, href: string, cacheKey: string) {
+  document
+    .querySelectorAll<HTMLLinkElement>(`link[rel='${rel}']`)
+    .forEach((element) => {
+      element.href = `${href}?brand=${cacheKey}`;
+    });
+}
+
 export function AppBranding() {
   const pathname = usePathname();
 
   useEffect(() => {
-    const config = getAppConfigByPath(pathname);
+    const browserPathname =
+      typeof window === "undefined" ? pathname : window.location.pathname;
+    const config = getAppConfigByPath(browserPathname);
     const root = document.documentElement;
 
     root.style.setProperty("--primary", config.primaryColor);
@@ -19,12 +29,10 @@ export function AppBranding() {
     root.style.setProperty("--app-primary-hover", config.primaryHoverColor);
     document.title = config.portalName;
 
-    const icon = document.querySelector<HTMLLinkElement>("link[rel='icon']");
-    if (icon) {
-      icon.href = config.logoPath;
-    }
+    updateIconLinks("icon", config.logoPath, config.key);
+    updateIconLinks("shortcut icon", config.logoPath, config.key);
+    updateIconLinks("apple-touch-icon", config.logoPath, config.key);
   }, [pathname]);
 
   return null;
 }
-

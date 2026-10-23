@@ -62,6 +62,7 @@ export default function SignUpPage() {
       <CardHeader className="space-y-1 text-center">
         <div className="mb-4 flex justify-center">
           <img
+            data-app-logo
             src={appConfig.logoPath}
             alt={appConfig.appName}
             className="h-20 w-20 rounded-2xl object-cover"

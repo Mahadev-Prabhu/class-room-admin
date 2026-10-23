@@ -60,6 +60,7 @@ export default function LoginPage() {
             aria-label={`${appConfig.appName} logo`}
           >
             <img
+              data-app-logo
               src={appConfig.logoPath}
               alt={appConfig.appName}
               className="w-20 h-20 rounded-2xl object-cover"

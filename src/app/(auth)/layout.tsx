@@ -26,8 +26,12 @@ export default function AuthLayout({
       window.location.hostname === "classroomapp-1abfc.web.app" ||
       window.location.hostname === "classroomapp-1abfc.firebaseapp.com";
 
-    if (isClassroomHost && !pathname.startsWith("/elementarylearning")) {
-      window.location.replace(`/elementarylearning${pathname}`);
+    const hasAppPrefix =
+      pathname.startsWith("/earlylearning") ||
+      pathname.startsWith("/k-5") || pathname.startsWith("/K-5");
+
+    if (isClassroomHost && !hasAppPrefix) {
+      window.location.replace(`/k-5${pathname}`);
     }
   }, [pathname]);
 
@@ -45,6 +49,7 @@ export default function AuthLayout({
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-50 to-orange-100">
         <img
+          data-app-logo
           src={appConfig.logoPath}
           alt={appConfig.appName}
           className="w-20 h-20 rounded-2xl animate-pulse"

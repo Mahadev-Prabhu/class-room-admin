@@ -30,6 +30,7 @@ export default function Home() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-50 to-orange-100">
       <div className="text-center">
         <img
+          data-app-logo
           src={appConfig.logoPath}
           alt={appConfig.appName}
           className="w-24 h-24 mx-auto mb-4 rounded-2xl animate-pulse"

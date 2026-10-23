@@ -10,61 +10,101 @@
     "redirects": [
       {
         "source": "/",
-        "destination": "/elementarylearning/login",
+        "destination": "/k-5/login",
         "type": 302
       },
       {
         "source": "/login",
-        "destination": "/elementarylearning/login",
+        "destination": "/k-5/login",
         "type": 302
       },
       {
         "source": "/signup",
-        "destination": "/elementarylearning/signup",
+        "destination": "/k-5/signup",
         "type": 302
       },
       {
         "source": "/forgot-password",
-        "destination": "/elementarylearning/forgot-password",
+        "destination": "/k-5/forgot-password",
         "type": 302
       },
       {
         "source": "/setup",
-        "destination": "/elementarylearning/setup",
+        "destination": "/k-5/setup",
         "type": 302
       },
       {
         "source": "/admin/dashboard",
-        "destination": "/elementarylearning/dashboard",
+        "destination": "/k-5/dashboard",
         "type": 302
       },
       {
         "source": "/admin/schools",
-        "destination": "/elementarylearning/schools",
+        "destination": "/k-5/schools",
         "type": 302
       },
       {
         "source": "/admin/class-codes",
-        "destination": "/elementarylearning/class-codes",
+        "destination": "/k-5/class-codes",
         "type": 302
       },
       {
         "source": "/admin/teachers",
-        "destination": "/elementarylearning/teachers",
+        "destination": "/k-5/teachers",
         "type": 302
       },
       {
         "source": "/admin/students",
-        "destination": "/elementarylearning/students",
+        "destination": "/k-5/students",
         "type": 302
       },
       {
         "source": "/admin/settings",
-        "destination": "/elementarylearning/settings",
+        "destination": "/k-5/settings",
         "type": 302
       }
     ],
     "rewrites": [
+      {
+        "source": "/earlylearning",
+        "destination": "/login.html"
+      },
+      {
+        "source": "/earlylearning/login",
+        "destination": "/login.html"
+      },
+      {
+        "source": "/earlylearning/signup",
+        "destination": "/signup.html"
+      },
+      {
+        "source": "/earlylearning/forgot-password",
+        "destination": "/forgot-password.html"
+      },
+      {
+        "source": "/earlylearning/setup",
+        "destination": "/setup.html"
+      },
+      {
+        "source": "/earlylearning/schools",
+        "destination": "/admin/schools.html"
+      },
+      {
+        "source": "/earlylearning/class-codes",
+        "destination": "/admin/class-codes.html"
+      },
+      {
+        "source": "/earlylearning/teachers",
+        "destination": "/admin/teachers.html"
+      },
+      {
+        "source": "/earlylearning/students",
+        "destination": "/admin/students.html"
+      },
+      {
+        "source": "/earlylearning/settings",
+        "destination": "/admin/settings.html"
+      },
       {
         "source": "/elementarylearning",
         "destination": "/login.html"
@@ -86,10 +126,6 @@
         "destination": "/setup.html"
       },
       {
-        "source": "/elementarylearning/dashboard",
-        "destination": "/admin/dashboard.html"
-      },
-      {
         "source": "/elementarylearning/schools",
         "destination": "/admin/schools.html"
       },
@@ -107,6 +143,50 @@
       },
       {
         "source": "/elementarylearning/settings",
+        "destination": "/admin/settings.html"
+      },
+      {
+        "source": "/k-5",
+        "destination": "/k-5/login.html"
+      },
+      {
+        "source": "/k-5/login",
+        "destination": "/k-5/login.html"
+      },
+      {
+        "source": "/k-5/signup",
+        "destination": "/signup.html"
+      },
+      {
+        "source": "/k-5/forgot-password",
+        "destination": "/forgot-password.html"
+      },
+      {
+        "source": "/k-5/setup",
+        "destination": "/setup.html"
+      },
+      {
+        "source": "/k-5/dashboard",
+        "destination": "/k-5/dashboard.html"
+      },
+      {
+        "source": "/k-5/schools",
+        "destination": "/admin/schools.html"
+      },
+      {
+        "source": "/k-5/class-codes",
+        "destination": "/admin/class-codes.html"
+      },
+      {
+        "source": "/k-5/teachers",
+        "destination": "/admin/teachers.html"
+      },
+      {
+        "source": "/k-5/students",
+        "destination": "/admin/students.html"
+      },
+      {
+        "source": "/k-5/settings",
         "destination": "/admin/settings.html"
       }
     ]

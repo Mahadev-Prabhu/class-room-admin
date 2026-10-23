@@ -399,6 +399,7 @@ export default function SetupPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-50 to-orange-100">
         <img
+          data-app-logo
           src={appConfig.logoPath}
           alt={appConfig.appName}
           className="w-20 h-20 rounded-2xl animate-pulse"
@@ -414,6 +415,7 @@ export default function SetupPage() {
           <CardHeader className="space-y-4 text-center">
             <div className="flex justify-center">
               <img
+                data-app-logo
                 src={appConfig.logoPath}
                 alt={appConfig.appName}
                 className="h-20 w-20 rounded-2xl object-cover"
@@ -462,6 +464,7 @@ export default function SetupPage() {
             </div>
             <div className="flex justify-center mb-4">
               <img
+                data-app-logo
                 src={appConfig.logoPath}
                 alt={appConfig.appName}
                 className="w-20 h-20 rounded-2xl object-cover"

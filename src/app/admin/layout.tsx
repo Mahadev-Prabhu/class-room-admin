@@ -33,6 +33,7 @@ export default function AdminLayout({
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <img
+          data-app-logo
           src={appConfig.logoPath}
           alt={appConfig.appName}
           className="w-16 h-16 rounded-xl animate-pulse"

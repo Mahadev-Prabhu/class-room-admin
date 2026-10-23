@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { UsDateInput } from "@/components/ui/us-date-input";
 import { ClearableSearchInput } from "@/components/admin/ClearableSearchInput";
 import { TruncatedText } from "@/components/admin/TruncatedText";
 import {
@@ -106,6 +107,8 @@ const isAlphanumeric = (value: string) => /^[a-z0-9]+$/i.test(value);
 const isClassCodePendingStatus = (status?: string) =>
   status === "class_code_pending" || status === "pending_replacement";
 
+type TeacherCodePrefix = "C" | "E";
+
 const getTeacherStatusLabel = (status?: string) => {
   if (isClassCodePendingStatus(status)) {
     return "Class Code Pending";
@@ -128,6 +131,8 @@ export default function TeachersPage() {
   const schoolFilter = searchParams.get("school");
   const { admin, user } = useAuth();
   const appConfig = useAppConfig();
+  const teacherCodePrefix: TeacherCodePrefix =
+    appConfig.key === "elementarylearning" ? "C" : "E";
   const [teachers, setTeachers] = useState<TeacherListItem[]>([]);
   const [filteredTeachers, setFilteredTeachers] = useState<TeacherListItem[]>([]);
   const [schools, setSchools] = useState<Admin[]>([]);
@@ -722,7 +727,7 @@ export default function TeachersPage() {
         normalizedEmail,
         createTeacherPassword,
         normalizedCode,
-        { enforceFormat: appConfig.key !== "elementarylearning" }
+        { codePrefix: teacherCodePrefix }
       );
       toast.success("Teacher account created successfully");
       resetCreateTeacherForm();
@@ -1374,7 +1379,7 @@ export default function TeachersPage() {
                   <div className="flex gap-2">
                     <Input
                       id="teacherCode"
-                      placeholder="e.g., EFHB775"
+                      placeholder={`e.g., ${teacherCodePrefix}FHB775`}
                       value={newCode}
                       onChange={(event) => {
                         setNewCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""));
@@ -1435,7 +1440,7 @@ export default function TeachersPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="expiration">Expiration Date</Label>
-                    <Input id="expiration" type="date" value={expirationDate} disabled />
+                    <UsDateInput id="expiration" value={expirationDate} disabled />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="limit">Student Limit</Label>
@@ -1463,7 +1468,7 @@ export default function TeachersPage() {
                   <div className="flex gap-2">
                     <Input
                       id="createTeacherCode"
-                      placeholder="e.g., EFHB775"
+                      placeholder={`e.g., ${teacherCodePrefix}FHB775`}
                       value={createTeacherCode}
                       onChange={(event) => {
                         setCreateTeacherCode(
@@ -1487,6 +1492,10 @@ export default function TeachersPage() {
                       {isValidatingCreateCode ? "Validating..." : "Validate"}
                     </Button>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    Format: starts with {teacherCodePrefix}, then 3 uppercase letters/numbers,
+                    then 2 to 4 numbers.
+                  </p>
                   {createCodeValidation.checked && (
                     <p
                       className={`text-sm ${
@@ -1501,9 +1510,8 @@ export default function TeachersPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="createExpiration">Expiration Date</Label>
-                    <Input
+                    <UsDateInput
                       id="createExpiration"
-                      type="date"
                       value={createTeacherExpirationDate}
                       disabled
                     />

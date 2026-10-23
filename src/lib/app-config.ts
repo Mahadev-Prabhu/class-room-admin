@@ -26,6 +26,16 @@ const earlyLearningFirebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "",
 };
 
+const CLASSROOM_HOSTS = new Set([
+  "admin.classroomsolution.app",
+  "classroomsolution.app",
+  "www.classroomsolution.app",
+  "classroom-admin.web.app",
+  "classroom-admin.firebaseapp.com",
+  "classroomapp-1abfc.web.app",
+  "classroomapp-1abfc.firebaseapp.com",
+]);
+
 export const APP_CONFIGS: Record<AppKey, AppConfig> = {
   earlylearning: {
     key: "earlylearning",
@@ -35,16 +45,16 @@ export const APP_CONFIGS: Record<AppKey, AppConfig> = {
     logoPath: "/brands/earlylearning/logo.png",
     primaryColor: "#155C8A",
     primaryHoverColor: "#0F4D78",
-    adminBaseUrl: "https://class-room-admin.vercel.app",
+    adminBaseUrl: "https://admin.classroomsolution.app",
     iosAppUrl: "https://apps.apple.com/us/app/head-start-learning-library/id6457893828",
     androidAppUrl: "https://play.google.com/store/apps/details?id=com.skc.head.start.learning.library",
     firebase: earlyLearningFirebaseConfig,
   },
   elementarylearning: {
     key: "elementarylearning",
-    pathPrefix: "/elementarylearning",
-    appName: "Classroom Solution",
-    portalName: "Elementary Learning Admin Portal",
+    pathPrefix: "/k-5",
+    appName: "Classroom K-5",
+    portalName: "Classroom K-5 Admin Portal",
     logoPath: "/brands/classroom/logo.png",
     primaryColor: "#660033",
     primaryHoverColor: "#4D0026",
@@ -69,17 +79,38 @@ export const APP_KEYS = Object.keys(APP_CONFIGS) as AppKey[];
 export function getAppKeyFromPath(pathname: string): AppKey | null {
   const firstSegment = pathname.split("/").filter(Boolean)[0];
 
-  return APP_KEYS.includes(firstSegment as AppKey)
-    ? (firstSegment as AppKey)
-    : null;
+  const matchingKey = firstSegment
+    ? APP_KEYS.find(
+    (key) =>
+      APP_CONFIGS[key].pathPrefix.slice(1).toLowerCase() ===
+      firstSegment.toLowerCase(),
+      )
+    : undefined;
+
+  return matchingKey || null;
+}
+
+export function getDefaultAppKey(): AppKey {
+  return process.env.NEXT_PUBLIC_DEFAULT_APP_KEY === "elementarylearning"
+    ? "elementarylearning"
+    : "earlylearning";
 }
 
 export function getCurrentAppKey(): AppKey {
   if (typeof window === "undefined") {
-    return "earlylearning";
+    return getDefaultAppKey();
   }
 
-  return getAppKeyFromPath(window.location.pathname) || "earlylearning";
+  const pathAppKey = getAppKeyFromPath(window.location.pathname);
+  if (pathAppKey) {
+    return pathAppKey;
+  }
+
+  if (CLASSROOM_HOSTS.has(window.location.hostname)) {
+    return "elementarylearning";
+  }
+
+  return "earlylearning";
 }
 
 export function getCurrentAppConfig() {
@@ -87,5 +118,5 @@ export function getCurrentAppConfig() {
 }
 
 export function getAppConfigByPath(pathname: string) {
-  return APP_CONFIGS[getAppKeyFromPath(pathname) || "earlylearning"];
+  return APP_CONFIGS[getAppKeyFromPath(pathname) || getCurrentAppKey()];
 }

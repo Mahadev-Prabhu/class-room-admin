@@ -448,6 +448,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-50 to-orange-100 p-4">
         <div className="bg-white p-8 rounded-lg shadow-lg max-w-md text-center">
           <img
+            data-app-logo
             src={appConfig.logoPath}
             alt={appConfig.appName}
             className="w-20 h-20 mx-auto mb-4 rounded-2xl"

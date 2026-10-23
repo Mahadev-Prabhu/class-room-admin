@@ -186,6 +186,7 @@ export function AdminSidebar() {
       <SidebarHeader className="border-b border-sidebar-border">
         <div className="flex items-center gap-3 px-2 py-3">
           <img
+            data-app-logo
             src={appConfig.logoPath}
             alt={appConfig.appName}
             className="w-10 h-10 rounded-xl object-cover"
