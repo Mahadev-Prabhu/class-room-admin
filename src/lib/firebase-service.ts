@@ -1108,11 +1108,21 @@ export async function deleteTeacherAccountCascade(
   }
 
   const classCodes = await fetchClassCodes();
+  const classCodeOwnedByTeacher = classCodes.find(
+    (code) => code.used_by === teacherUid
+  )?.code;
+  const teacherRecordCode = teacher.teacher_code?.trim() || "";
+  const teacherRecordCodeEntry = classCodes.find(
+    (code) => code.code === teacherRecordCode
+  );
   const classCode =
-    teacher.teacher_code ||
-    classCodes.find((code) => code.used_by === teacherUid)?.code ||
-    "";
+    classCodeOwnedByTeacher ||
+    (teacherRecordCodeEntry &&
+    (!teacherRecordCodeEntry.used_by || teacherRecordCodeEntry.used_by === teacherUid)
+      ? teacherRecordCode
+      : "");
   const matchingChildrenByStudentUid = new Map<string, Set<string>>();
+  const matchingLegacyStudentUids = new Set<string>();
 
   const addMatchingChild = (studentUid: string, childId: string) => {
     const existing = matchingChildrenByStudentUid.get(studentUid) || new Set<string>();
@@ -1122,6 +1132,18 @@ export async function deleteTeacherAccountCascade(
 
   if (teacher.students) {
     for (const [studentUid, children] of Object.entries(teacher.students)) {
+      // Older signup records store the parent email directly at
+      // users/{teacherUid}/students/{parentUid}/child_mail and do not have a
+      // child key. In that format the parent account is the linked record.
+      if (
+        children &&
+        typeof children === "object" &&
+        typeof (children as Record<string, unknown>).child_mail === "string"
+      ) {
+        matchingLegacyStudentUids.add(studentUid);
+        continue;
+      }
+
       for (const childId of Object.keys(children || {})) {
         addMatchingChild(studentUid, childId);
       }
@@ -1135,8 +1157,9 @@ export async function deleteTeacherAccountCascade(
 
     for (const [childId, child] of Object.entries(user.children)) {
       if (
-        child.teacher_uid === teacherUid ||
-        (classCode && child.teacher_code === classCode)
+        classCode &&
+        child.teacher_uid === teacherUid &&
+        child.teacher_code === classCode
       ) {
         addMatchingChild(studentUid, childId);
       }
@@ -1191,6 +1214,22 @@ export async function deleteTeacherAccountCascade(
     for (const childId of matchingExistingChildIds) {
       updates[`users/${studentUid}/children/${childId}`] = null;
       deletedChildProfiles += 1;
+    }
+  }
+
+  for (const studentUid of matchingLegacyStudentUids) {
+    const student = users[studentUid];
+
+    if (!student || !isStudentUser(student) || updates[`users/${studentUid}`]) {
+      continue;
+    }
+
+    // The legacy link has no child key. Only delete the whole parent when it
+    // has no child profiles; if profiles exist, preserve the account unless
+    // the normal child metadata proves they belong to this teacher.
+    if (Object.keys(student.children || {}).length === 0) {
+      updates[`users/${studentUid}`] = null;
+      deletedStudentAccounts += 1;
     }
   }
 

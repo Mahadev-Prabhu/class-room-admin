@@ -1753,14 +1753,27 @@ export default function TeachersPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete teacher?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Delete {deleteTeacher?.name || "this teacher"} and connected
-              data? This will delete the teacher account, connected class code,
-              teacher-student links, and connected student data. If a student
-              account has one child, the whole student account will be deleted.
-              If it has multiple children, only the child profile connected to
-              this teacher will be deleted. You will be asked for the Super
-              Admin password before deletion.
+            <AlertDialogDescription asChild>
+              <div>
+                <p>
+                  Delete {deleteTeacher?.name || "this teacher"} and connected
+                  data?
+                </p>
+                <ul className="mt-3 list-disc space-y-2 pl-5">
+                  <li>Teacher account and connected class code</li>
+                  <li>Teacher-student links</li>
+                  <li>Connected student data</li>
+                  <li>
+                    If a student has one child, the whole student account will
+                    be deleted.
+                  </li>
+                  <li>
+                    If a student has multiple children, only this teacher&apos;s
+                    child profile will be deleted.
+                  </li>
+                  <li>Super Admin password confirmation is required.</li>
+                </ul>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -110,7 +110,10 @@ export function getCurrentAppKey(): AppKey {
     return "elementarylearning";
   }
 
-  return "earlylearning";
+  // On localhost (and other non-branded hosts), honor the configured default
+  // app instead of silently switching to HeadStart. This keeps /admin/*
+  // routes aligned with NEXT_PUBLIC_DEFAULT_APP_KEY during local testing.
+  return getDefaultAppKey();
 }
 
 export function getCurrentAppConfig() {
