@@ -95,13 +95,6 @@ const getLocalDateValue = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
-const getDateAfterDays = (days: number) => {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-
-  return getLocalDateValue(date);
-};
-
 const isAlphanumeric = (value: string) => /^[a-z0-9]+$/i.test(value);
 
 const isClassCodePendingStatus = (status?: string) =>
@@ -659,11 +652,7 @@ export default function TeachersPage() {
         return;
       }
 
-      const calculatedExpirationDate =
-        teacherCode.expiration_date ||
-        (typeof teacherCode.valid_days_after_applied === "number"
-          ? getDateAfterDays(teacherCode.valid_days_after_applied)
-          : "");
+      const calculatedExpirationDate = teacherCode.expiration_date || "";
 
       if (calculatedExpirationDate && calculatedExpirationDate <= getLocalDateValue(new Date())) {
         setCreateCodeValidation({
@@ -1493,8 +1482,8 @@ export default function TeachersPage() {
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Format: starts with {teacherCodePrefix}, then 3 uppercase letters/numbers,
-                    then 2 to 4 numbers.
+                    Format: {teacherCodePrefix}, then 3 uppercase letters and 3 numbers
+                    (for example, {teacherCodePrefix}ZPF675).
                   </p>
                   {createCodeValidation.checked && (
                     <p
@@ -1509,12 +1498,17 @@ export default function TeachersPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="createExpiration">Expiration Date</Label>
+                    <Label htmlFor="createExpiration">Actual Expiry Date</Label>
                     <UsDateInput
                       id="createExpiration"
                       value={createTeacherExpirationDate}
                       disabled
                     />
+                    {createCodeValidation.classCode && (
+                      <p className="text-xs text-muted-foreground">
+                        Validity: {createCodeValidation.classCode.valid_days_after_applied ?? 365} days after application.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="createLimit">Student Limit</Label>

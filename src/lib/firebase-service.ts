@@ -21,6 +21,7 @@ import {
   AccountRole,
 } from "./types";
 import { formatDisplayName } from "./utils";
+import { getValidityDaysFromDate } from "./class-code-validity";
 
 // Helper to check if database is configured
 function getDatabase() {
@@ -138,19 +139,6 @@ function getTeacherSchoolAdminMap(users: Record<string, FirebaseUser>) {
   return schoolAdminByTeacherCode;
 }
 
-function formatTeacherCodeDate(date?: string | null) {
-  if (!date) {
-    return null;
-  }
-
-  const [year, month, day] = date.split("-");
-  if (!year || !month || !day) {
-    return date;
-  }
-
-  return `${day}/${month}/${year}`;
-}
-
 function parseTeacherCodeDate(date?: string | null) {
   if (!date) {
     return undefined;
@@ -168,11 +156,9 @@ function parseTeacherCodeDate(date?: string | null) {
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 }
 
-function getDateAfterDays(days: number) {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-
-  return date.toISOString().slice(0, 10);
+function formatTeacherCodeDate(date: string) {
+  const [year, month, day] = date.split("-");
+  return `${day}/${month}/${year}`;
 }
 
 function getLocalDateValue(date = new Date()) {
@@ -456,11 +442,11 @@ const TEST_TEACHER_CODE_PATTERN = /^TEST\d{3,4}$/;
 const CLASS_CODE_PENDING_STATUS = "class_code_pending";
 
 function getTeacherCodePattern(prefix: TeacherCodePrefix) {
-  return new RegExp(`^${prefix}[A-Z0-9]{3}\\d{2,4}$`);
+  return new RegExp(`^${prefix}[A-Z]{3}\\d{3}$`);
 }
 
 function getTeacherCodeRequirements(prefix: TeacherCodePrefix) {
-  return `Teacher code must start with ${prefix}, followed by 3 uppercase letters or numbers, and end with 2 to 4 numbers.`;
+  return `Teacher code must start with ${prefix}, followed by 3 uppercase letters and 3 numbers.`;
 }
 
 function isValidTeacherCodeFormat(code: string, prefix: TeacherCodePrefix) {
@@ -519,7 +505,7 @@ export async function fetchClassCodes(): Promise<ClassCode[]> {
 
 export async function createClassCode(
   classCode: ClassCode,
-  options: { enforceFormat?: boolean; codePrefix?: TeacherCodePrefix } = {}
+  options: { enforceFormat?: boolean; codePrefix?: TeacherCodePrefix; validityDate?: string } = {}
 ): Promise<void> {
   const enforceFormat = options.enforceFormat ?? true;
   const codePrefix = options.codePrefix ?? "E";
@@ -533,17 +519,23 @@ export async function createClassCode(
 
   const db = getDatabase();
   const teacherCodeRef = ref(db, `teacher_codes/${classCode.code}`);
-  await update(teacherCodeRef, {
-    ...(classCode.expiration_date !== undefined
-      ? { expiry_date: formatTeacherCodeDate(classCode.expiration_date) }
-      : {}),
+  const codeData = {
     ...(classCode.student_limit !== undefined
       ? { students_limits: classCode.student_limit }
       : {}),
     ...(classCode.used_by ? { used_by: classCode.used_by } : {}),
     ...(classCode.school_admin_uid ? { school_admin_uid: classCode.school_admin_uid } : {}),
-    valid_days_after_applied: 365,
-  });
+    valid_days_after_applied: getValidityDaysFromDate(options.validityDate),
+  };
+  const result = await runTransaction(
+    teacherCodeRef,
+    (existingCode) => (existingCode === null ? codeData : undefined),
+    { applyLocally: false }
+  );
+
+  if (!result.committed) {
+    throw new Error("This class code already exists");
+  }
 }
 
 export async function addTeacherToAdmin(
@@ -591,16 +583,28 @@ export async function fetchAdminTeachers(adminUid: string): Promise<TeacherListI
 
 export async function updateClassCode(
   code: string,
-  updates: Partial<Record<keyof ClassCode, string | number | null>>
+  updates: {
+    validity_date?: string;
+    expiry_date?: string;
+    student_limit?: number | null;
+    used_by?: string | null;
+    school_admin_uid?: string | null;
+  }
 ): Promise<void> {
   const db = getDatabase();
   const teacherCodeUpdates: Record<string, string | number | null> = {};
 
-  if ("expiration_date" in updates) {
-    teacherCodeUpdates.expiry_date =
-      typeof updates.expiration_date === "string"
-        ? formatTeacherCodeDate(updates.expiration_date)
-        : null;
+  if ("validity_date" in updates) {
+    if (!updates.validity_date) {
+      throw new Error("Select a validity date");
+    }
+    teacherCodeUpdates.valid_days_after_applied =
+      getValidityDaysFromDate(updates.validity_date);
+  }
+
+  if (updates.expiry_date) {
+    getValidityDaysFromDate(updates.expiry_date);
+    teacherCodeUpdates.expiry_date = formatTeacherCodeDate(updates.expiry_date);
   }
 
   if ("student_limit" in updates) {
@@ -1445,7 +1449,8 @@ export async function createTeacherAccountForSchool(
 
   if (
     enforceFormat &&
-    !isValidTeacherCodeFormat(normalizedCode, codePrefix)
+    !isValidTeacherCodeFormat(normalizedCode, codePrefix) &&
+    !(codePrefix === "C" && /^C[A-Z0-9]{3}\d{2,4}$/.test(normalizedCode))
   ) {
     throw new Error(getTeacherCodeRequirements(codePrefix));
   }
@@ -1473,11 +1478,7 @@ export async function createTeacherAccountForSchool(
     throw new Error("This class code is already assigned to another school");
   }
 
-  const expirationDate =
-    parseTeacherCodeDate(codeData.expiry_date) ||
-    (typeof codeData.valid_days_after_applied === "number"
-      ? getDateAfterDays(codeData.valid_days_after_applied)
-      : undefined);
+  const expirationDate = parseTeacherCodeDate(codeData.expiry_date);
   if (expirationDate && expirationDate <= new Date().toISOString().slice(0, 10)) {
     throw new Error("This class code is expired");
   }
@@ -1514,9 +1515,6 @@ export async function createTeacherAccountForSchool(
       },
       [`teacher_codes/${normalizedCode}/used_by`]: teacherUid,
       [`teacher_codes/${normalizedCode}/school_admin_uid`]: schoolAdminUid,
-      ...(expirationDate
-        ? { [`teacher_codes/${normalizedCode}/expiry_date`]: formatTeacherCodeDate(expirationDate) }
-        : {}),
       [`users/${schoolAdminUid}/teachers/${teacherUid}`]: {
         uid: teacherUid,
         school_admin_uid: schoolAdminUid,

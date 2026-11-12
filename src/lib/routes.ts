@@ -1,4 +1,4 @@
-import { APP_CONFIGS, getAppKeyFromPath, getCurrentAppConfig } from "./app-config";
+import { APP_CONFIGS, getAppKeyFromPath, getCurrentAppConfig, getDefaultAppKey } from "./app-config";
 
 const ADMIN_ROUTE_MAP: Record<string, string> = {
   "/admin/dashboard": "/dashboard",
@@ -52,8 +52,8 @@ export function toAppPath(path: string) {
 }
 
 export function toAppPathForPath(path: string, currentPathname: string) {
-  const appKey = getAppKeyFromPath(currentPathname);
-  const pathPrefix = appKey ? APP_CONFIGS[appKey].pathPrefix : "";
+  const appKey = getAppKeyFromPath(currentPathname) || getDefaultAppKey();
+  const pathPrefix = APP_CONFIGS[appKey].pathPrefix;
 
   return toAppPathForConfig(path, pathPrefix);
 }

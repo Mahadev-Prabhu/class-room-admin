@@ -62,6 +62,7 @@ import { formatUsDate } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { toAppPathForPath } from "@/lib/routes";
 import { useAppConfig } from "@/lib/use-app-config";
+import { DEFAULT_CLASS_CODE_VALIDITY_DAYS, getDateForValidityDays } from "@/lib/class-code-validity";
 
 const getLocalDateValue = (date: Date) => {
   const year = date.getFullYear();
@@ -123,9 +124,9 @@ const getStatusClassName = (status: string) => {
 type TeacherCodePrefix = "C" | "E";
 const TEST_TEACHER_CODE_PATTERN = /^TEST\d{3,4}$/;
 const getTeacherCodePattern = (prefix: TeacherCodePrefix) =>
-  new RegExp(`^${prefix}[A-Z0-9]{3}\\d{2,4}$`);
+  new RegExp(`^${prefix}[A-Z]{3}\\d{3}$`);
 const getTeacherCodeRequirements = (prefix: TeacherCodePrefix) =>
-  `Teacher code must start with ${prefix}, followed by 3 uppercase letters or numbers, and end with 2 to 4 numbers.`;
+  `Teacher code must start with ${prefix}, followed by 3 uppercase letters and 3 numbers.`;
 const isValidTeacherCodeFormat = (value: string, prefix: TeacherCodePrefix) =>
   getTeacherCodePattern(prefix).test(value) || TEST_TEACHER_CODE_PATTERN.test(value);
 type SortField = "status" | "school";
@@ -166,7 +167,7 @@ export default function ClassCodesPage() {
   const [teacherEmail, setTeacherEmail] = useState("");
   const [expirationDate, setExpirationDate] = useState("");
   const [studentLimit, setStudentLimit] = useState("");
-  const [editExpirationDate, setEditExpirationDate] = useState("");
+  const [editDate, setEditDate] = useState("");
   const [editStudentLimit, setEditStudentLimit] = useState("");
   const [codeValidation, setCodeValidation] = useState<{
     checked: boolean;
@@ -313,13 +314,8 @@ export default function ClassCodesPage() {
       return;
     }
 
-    if (admin?.role === "super_admin" && !expirationDate) {
-      toast.error("Please select an expiry date");
-      return;
-    }
-
     if (expirationDate && expirationDate <= getLocalDateValue(new Date())) {
-      toast.error("Expiration date must be greater than today's date");
+      toast.error("Validity date must be later than today");
       return;
     }
 
@@ -343,11 +339,10 @@ export default function ClassCodesPage() {
             teacher_name: teacherName || undefined,
             teacher_email: teacherEmail || undefined,
             used_by: codeValidation.teacher?.uid,
-            expiration_date: expirationDate || undefined,
             student_limit: studentLimit ? parseInt(studentLimit) : undefined,
             created_at: new Date().toISOString(),
           },
-          { codePrefix: teacherCodePrefix }
+          { codePrefix: teacherCodePrefix, validityDate: expirationDate }
         );
       } else if (admin?.uid) {
         const teacherUid =
@@ -397,16 +392,37 @@ export default function ClassCodesPage() {
 
   const openEditDialog = (classCode: ClassCode) => {
     setEditingClassCode(classCode);
-    setEditExpirationDate(classCode.expiration_date || "");
+    setEditDate(
+      getClassCodeStatus(classCode) === "Available"
+        ? getDateForValidityDays(
+            classCode.valid_days_after_applied ?? DEFAULT_CLASS_CODE_VALIDITY_DAYS
+          )
+        : classCode.expiration_date || ""
+    );
     setEditStudentLimit(classCode.student_limit?.toString() || "");
   };
 
   const handleUpdateClassCode = async () => {
     if (!editingClassCode) return;
 
-    if (editExpirationDate && editExpirationDate <= getLocalDateValue(new Date())) {
-      toast.error("Expiration date must be greater than today's date");
+    if (!editDate) {
       return;
+    }
+
+    const isAvailable = getClassCodeStatus(editingClassCode) === "Available";
+    const expiryDateChanged =
+      !isAvailable && editDate !== (editingClassCode.expiration_date || "");
+
+    if (isAvailable && editDate <= getLocalDateValue(new Date())) {
+      toast.error("Validity date must be later than today");
+      return;
+    }
+
+    if (expiryDateChanged) {
+      if (editDate <= getLocalDateValue(new Date())) {
+        toast.error("Expiry date must be later than today");
+        return;
+      }
     }
 
     if (editStudentLimit && parseInt(editStudentLimit) <= 0) {
@@ -418,13 +434,17 @@ export default function ClassCodesPage() {
 
     try {
       await updateClassCode(editingClassCode.code, {
-        expiration_date: editExpirationDate || null,
+        ...(isAvailable
+          ? { validity_date: editDate }
+          : expiryDateChanged
+            ? { expiry_date: editDate }
+            : {}),
         student_limit: editStudentLimit ? parseInt(editStudentLimit) : null,
       });
 
       toast.success("Class code updated successfully!");
       setEditingClassCode(null);
-      setEditExpirationDate("");
+      setEditDate("");
       setEditStudentLimit("");
       loadData();
     } catch {
@@ -449,16 +469,18 @@ export default function ClassCodesPage() {
     setIsDeleting(true);
 
     try {
+      const codeBeingDeleted = deletingClassCode.code;
       const status = getClassCodeStatus(deletingClassCode);
 
       if (status === "Expired" || status === "Teacher Claimed") {
         const summary = await deleteExpiredTeacherCode(deletingClassCode.code);
+        const statusLabel = status === "Expired" ? "Expired" : "Teacher-claimed";
         toast.success(
-          `Class code deleted. Removed ${summary.deletedChildProfiles} child profile${
-            summary.deletedChildProfiles === 1 ? "" : "s"
-          } and ${summary.deletedParentAccounts} parent account${
-            summary.deletedParentAccounts === 1 ? "" : "s"
-          }.`
+          `${statusLabel} class code ${codeBeingDeleted} deleted. Removed ${
+            summary.deletedChildProfiles
+          } child profile${summary.deletedChildProfiles === 1 ? "" : "s"} and ${
+            summary.deletedParentAccounts
+          } parent account${summary.deletedParentAccounts === 1 ? "" : "s"}.`
         );
       } else {
         if (!canDirectDeleteClassCode(deletingClassCode)) {
@@ -466,10 +488,15 @@ export default function ClassCodesPage() {
           return;
         }
 
-        await deleteClassCode(deletingClassCode.code);
-        toast.success("Teacher code deleted successfully");
+        await deleteClassCode(codeBeingDeleted);
+        toast.success(`Available class code ${codeBeingDeleted} deleted successfully.`);
       }
 
+      // Remove the deleted row immediately so the screen reflects the completed
+      // action even if the follow-up data refresh is slow.
+      setClassCodes((currentCodes) =>
+        currentCodes.filter((classCode) => classCode.code !== codeBeingDeleted)
+      );
       setDeletingClassCode(null);
       await loadData();
     } catch (error) {
@@ -514,6 +541,7 @@ export default function ClassCodesPage() {
       code.teacher_email,
       code.school_admin_name,
       code.expiration_date,
+      code.valid_days_after_applied?.toString(),
       code.student_limit?.toString(),
       status,
       teacher?.name,
@@ -574,6 +602,9 @@ export default function ClassCodesPage() {
 
     return sortDirection === "asc" ? "Sorted ascending" : "Sorted descending";
   };
+
+  const isEditingAvailableCode =
+    !!editingClassCode && getClassCodeStatus(editingClassCode) === "Available";
 
   return (
     <div className="space-y-6">
@@ -649,8 +680,8 @@ export default function ClassCodesPage() {
                 </div>
                 {admin?.role === "super_admin" && (
                   <p className="text-xs text-muted-foreground">
-                    Format: starts with {teacherCodePrefix}, then 3 uppercase letters/numbers,
-                    then 2 to 4 numbers.
+                    Format: {teacherCodePrefix}, then 3 uppercase letters and 3 numbers
+                    (for example, {teacherCodePrefix}ZPF675). TEST followed by 3 or 4 digits is also supported.
                   </p>
                 )}
                 {admin?.role !== "super_admin" && codeValidation.checked && (
@@ -694,13 +725,20 @@ export default function ClassCodesPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="expiration">Expiration Date</Label>
+                  <Label htmlFor="expiration">
+                    Expiry Date (optional)
+                  </Label>
                   <UsDateInput
                     id="expiration"
                     value={expirationDate}
                     disabled={admin?.role !== "super_admin"}
                     onValueChange={setExpirationDate}
                   />
+                  {admin?.role === "super_admin" && (
+                    <p className="text-xs text-muted-foreground">
+                      The date sets the number of days from today. Only that day count is saved; the app sets the actual expiry when the teacher signs up. Leave blank for 365 days.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="limit">Student Limit</Label>
@@ -796,12 +834,12 @@ export default function ClassCodesPage() {
               </div>
             ) : (
               <div className="w-full overflow-x-auto">
-                <Table className="min-w-[980px] table-fixed">
+                <Table className="min-w-[1080px] table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[12%] text-center">Code</TableHead>
-                      <TableHead className="w-[17%] text-center">Used By</TableHead>
-                      <TableHead className="w-[21%] text-center">
+                      <TableHead className="w-[11%] text-center">Code</TableHead>
+                      <TableHead className="w-[16%] text-center">Used By</TableHead>
+                      <TableHead className="w-[19%] text-center">
                         <Button
                           variant="ghost"
                           size="sm"
@@ -813,9 +851,10 @@ export default function ClassCodesPage() {
                           <ArrowUpDown className="h-3.5 w-3.5" />
                         </Button>
                       </TableHead>
-                      <TableHead className="w-[12%] text-center">Student Limit</TableHead>
-                      <TableHead className="w-[15%] text-center">Expiry Date</TableHead>
-                      <TableHead className="w-[13%] text-center">
+                      <TableHead className="w-[11%] text-center">Student Limit</TableHead>
+                      <TableHead className="w-[11%] text-center">Validity</TableHead>
+                      <TableHead className="w-[13%] text-center">Actual Expiry Date</TableHead>
+                      <TableHead className="w-[11%] text-center">
                         <Button
                           variant="ghost"
                           size="sm"
@@ -827,7 +866,7 @@ export default function ClassCodesPage() {
                           <ArrowUpDown className="h-3.5 w-3.5" />
                         </Button>
                       </TableHead>
-                      <TableHead className="w-[10%] text-center">Actions</TableHead>
+                      <TableHead className="w-[8%] text-center">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -857,6 +896,11 @@ export default function ClassCodesPage() {
                           </TableCell>
                           <TableCell className="text-center tabular-nums">
                             {code.student_limit || "-"}
+                          </TableCell>
+                          <TableCell className="text-center tabular-nums">
+                            {typeof code.valid_days_after_applied === "number"
+                              ? `${code.valid_days_after_applied} days`
+                              : "-"}
                           </TableCell>
                           <TableCell className="text-center">
                             {code.expiration_date ? (
@@ -1016,7 +1060,7 @@ export default function ClassCodesPage() {
         onOpenChange={(open) => {
           if (!open) {
             setEditingClassCode(null);
-            setEditExpirationDate("");
+            setEditDate("");
             setEditStudentLimit("");
           }
         }}
@@ -1025,17 +1069,22 @@ export default function ClassCodesPage() {
           <DialogHeader>
             <DialogTitle>Edit Class Code</DialogTitle>
             <DialogDescription>
-              Update expiration date and student limit for {editingClassCode?.code}.
+              Update {isEditingAvailableCode ? "validity days" : "expiry date"} and student limit for {editingClassCode?.code}.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="editExpiration">Expiration Date</Label>
+              <Label htmlFor="editDate">Expiry Date</Label>
               <UsDateInput
-                id="editExpiration"
-                value={editExpirationDate}
-                onValueChange={setEditExpirationDate}
+                id="editDate"
+                value={editDate}
+                onValueChange={setEditDate}
               />
+              {isEditingAvailableCode && (
+                <p className="text-xs text-muted-foreground">
+                  Saved validity: {editingClassCode?.valid_days_after_applied ?? DEFAULT_CLASS_CODE_VALIDITY_DAYS} days after applied.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="editStudentLimit">Student Limit</Label>
@@ -1056,7 +1105,10 @@ export default function ClassCodesPage() {
             >
               Cancel
             </Button>
-            <Button onClick={handleUpdateClassCode} disabled={isUpdating}>
+            <Button
+              onClick={handleUpdateClassCode}
+              disabled={isUpdating || !editDate}
+            >
               {isUpdating ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>

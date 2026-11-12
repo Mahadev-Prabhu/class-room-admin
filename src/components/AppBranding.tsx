@@ -27,11 +27,25 @@ export function AppBranding() {
     root.style.setProperty("--sidebar-ring", config.primaryColor);
     root.style.setProperty("--app-primary", config.primaryColor);
     root.style.setProperty("--app-primary-hover", config.primaryHoverColor);
-    document.title = config.portalName;
 
-    updateIconLinks("icon", config.logoPath, config.key);
-    updateIconLinks("shortcut icon", config.logoPath, config.key);
-    updateIconLinks("apple-touch-icon", config.logoPath, config.key);
+    const syncBranding = () => {
+      if (document.title !== config.portalName) {
+        document.title = config.portalName;
+      }
+
+      updateIconLinks("icon", config.logoPath, config.key);
+      updateIconLinks("shortcut icon", config.logoPath, config.key);
+      updateIconLinks("apple-touch-icon", config.logoPath, config.key);
+    };
+
+    syncBranding();
+
+    // Next.js can update the shared metadata after navigation. Keep the
+    // browser tab title and favicon aligned with the active app route.
+    const headObserver = new MutationObserver(syncBranding);
+    headObserver.observe(document.head, { childList: true, subtree: true });
+
+    return () => headObserver.disconnect();
   }, [pathname]);
 
   return null;
